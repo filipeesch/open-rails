@@ -1,0 +1,30 @@
+# Dependencies / packages
+node_modules/
+vendor/
+
+# Build output
+build/
+dist/
+bin/
+obj/
+out/
+
+# Engine / editor caches
+*.import
+Library/
+Temp/
+Logs/
+UserSettings/
+Saved/
+Cache/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vs/
+*.swp
+
+# Environment / secrets
+.env
+.env.*

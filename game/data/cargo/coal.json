@@ -1,0 +1,11 @@
+{
+  "id": "coal",
+  "display_name": "Coal",
+  "unit_label": "tons",
+  "base_rate": 8.0,
+  "time_sensitivity": 0.01,
+  "quality_floor": 0.9,
+  "colour": "#4a4a52",
+  "wagon_required": true,
+  "tonnes_per_unit": 1.0
+}

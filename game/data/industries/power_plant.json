@@ -1,0 +1,12 @@
+{
+  "id": "power_plant",
+  "display_name": "Power Plant",
+  "asset": "power_plant",
+  "footprint": [4, 3],
+  "produces": [],
+  "accepts": [
+    { "cargo": "coal", "capacity_per_month": 60 }
+  ],
+  "animation_state": "working",
+  "description": "Burns coal, hums loudly, would burn anything you bring it."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "passengers",
+  "display_name": "Passengers",
+  "unit_label": "pax",
+  "base_rate": 14.0,
+  "time_sensitivity": 0.18,
+  "quality_floor": 0.25,
+  "colour": "#d9a441",
+  "wagon_required": true,
+  "tonnes_per_unit": 0.09
+}

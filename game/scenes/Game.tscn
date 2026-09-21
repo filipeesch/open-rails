@@ -1,0 +1,96 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/game_root.gd" id="1_game"]
+[ext_resource type="Script" path="res://src/domain/game_session.gd" id="2_session"]
+[ext_resource type="Script" path="res://src/ui/trip_panel.gd" id="3_trips"]
+
+[node name="Game" type="Node3D"]
+script = ExtResource("1_game")
+
+[node name="World3D" type="Node3D" parent="."]
+
+[node name="Sun" type="DirectionalLight3D" parent="World3D"]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 60, 0)
+shadow_enabled = true
+
+[node name="Terrain" type="Node3D" parent="World3D"]
+
+[node name="Water" type="Node3D" parent="World3D"]
+
+[node name="Scenery" type="Node3D" parent="World3D"]
+
+[node name="Rail" type="Node3D" parent="World3D"]
+
+[node name="Buildings" type="Node3D" parent="World3D"]
+
+[node name="Trains" type="Node3D" parent="World3D"]
+
+[node name="Effects" type="Node3D" parent="World3D"]
+
+[node name="Overlay" type="Node3D" parent="World3D"]
+
+[node name="CameraRig" type="Node3D" parent="World3D"]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="TopBar" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 10
+anchor_right = 1.0
+
+[node name="BottomToolbar" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="ContextInspector" type="HBoxContainer" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 76.0
+offset_right = -8.0
+offset_bottom = -84.0
+alignment = 2
+mouse_filter = 2
+
+[node name="ToolPanel" type="HBoxContainer" parent="UI"]
+layout_mode = 3
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 76.0
+offset_right = 380.0
+offset_bottom = -84.0
+mouse_filter = 2
+
+[node name="TrainDrawer" type="PanelContainer" parent="UI"]
+layout_mode = 3
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 76.0
+offset_right = 376.0
+offset_bottom = -84.0
+visible = false
+script = ExtResource("3_trips")
+
+[node name="Notifications" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="ModalLayer" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="GameSession" type="Node" parent="."]
+script = ExtResource("2_session")

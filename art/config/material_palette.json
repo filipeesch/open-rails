@@ -1,0 +1,46 @@
+{
+  "$schema_note": "Canonical material palette for Open Rails. This file is the single source of truth for asset colours; .agents/references/material-palette.md mirrors it for humans and must be updated in the same change if the two disagree. Colours are sRGB hex. Geometry inside the GLB stores LINEAR-interpreted vertex colours: exporters/tools convert sRGB->linear on write and linear->sRGB on read.",
+  "version": 1,
+  "colour_space": "sRGB",
+  "categories": {
+    "grass":            {"hex": "#7FA650", "note": "dominant terrain colour"},
+    "earth":            {"hex": "#8A6B4A", "note": "dirt roads, excavation"},
+    "stone":            {"hex": "#9A9A92", "note": "ballast, foundations, rocks"},
+    "brick_red":        {"hex": "#9C4A3A", "note": "station/industry walls"},
+    "brick_brown":      {"hex": "#7C5A42", "note": "alternate walls"},
+    "roof_red":         {"hex": "#A8452F", "note": "painted metal roofs"},
+    "roof_dark":        {"hex": "#4A4A52", "note": "slate/tar roofs"},
+    "wood_light":       {"hex": "#C19A6B", "note": "siding, crates, wagons"},
+    "wood_dark":        {"hex": "#6E5138", "note": "trim, ties, beams"},
+    "iron":             {"hex": "#5C5F66", "note": "rails, rods, machinery frames"},
+    "steel":            {"hex": "#8D949C", "note": "boiler bands, bright parts"},
+    "glass_fake":       {"hex": "#CFD8DC", "note": "windows; stylized opaque, mild emission ok"},
+    "water":            {"hex": "#4F7F9E", "note": "lakes/rivers"},
+    "company_primary":  {"hex": "#B8452C", "note": "default company livery (runtime-tintable)"},
+    "company_secondary":{"hex": "#F2E8D5", "note": "default trim/livery (runtime-tintable)"}
+  },
+  "materials": {
+    "vertex_colour": {
+      "kind": "shared_opaque",
+      "colour_attribute": "Col",
+      "note": "Every opaque surface in every asset uses this single shared material; colour comes from the mesh colour attribute, never from material parameters."
+    },
+    "company_colour": {
+      "kind": "parameterised",
+      "note": "Shared parameterised company livery material. Baked as two export instances so the runtime can tint each livery region independently with one material override per instance.",
+      "params": {
+        "primary": "company_primary",
+        "secondary": "company_secondary"
+      },
+      "export_names": {
+        "primary": "company_primary",
+        "secondary": "company_secondary"
+      }
+    },
+    "water": {
+      "kind": "shared_translucent",
+      "colour_category": "water",
+      "note": "The one sanctioned transparent material; terrain water surfaces only, never authored into asset GLBs."
+    }
+  }
+}

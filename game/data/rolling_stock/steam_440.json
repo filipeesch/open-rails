@@ -1,0 +1,13 @@
+{
+  "id": "steam_440",
+  "display_name": "4-4-0 American",
+  "type": "locomotive",
+  "asset": "steam_440",
+  "price": 26000.0,
+  "running_cost_month": 900.0,
+  "max_speed_kmh": 78.0,
+  "power": 1.0,
+  "weight_tons": 26.0,
+  "wheel_radius": 0.11,
+  "description": "The workhorse of the early lines. Balanced, cheap to run, unexciting."
+}

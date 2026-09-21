@@ -1,0 +1,9 @@
+# Founder's Valley tree — chunky stacked-canopy deciduous tree.
+id = "tree"
+type = "tree"
+lod_class = "tree"
+footprint = [0.72, 0.72]   # widest canopy blob, tile units (asset-scale.md: within 1 tile)
+height = 1.19
+
+[animation]
+required_states = []       # static decoration

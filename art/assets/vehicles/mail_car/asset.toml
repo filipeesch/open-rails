@@ -1,0 +1,12 @@
+# Mail car — dark varnished body, painted company panel, roof mail cube.
+id = "mail_car"
+type = "wagon"
+lod_class = "wagon"
+footprint = [0.70, 0.45]
+height = 0.41
+
+[animation]
+required_states = ["moving"]
+
+[company_colors]
+regions = ["primary"]

@@ -1,0 +1,12 @@
+# Founder's Valley station — platform + station building + coupling points.
+id = "small_station"
+type = "station"
+lod_class = "station"
+footprint = [2.40, 0.90]
+height = 1.02
+
+[animation]
+required_states = []
+
+[company_colors]
+regions = ["secondary"]     # the station name board carries the company livery

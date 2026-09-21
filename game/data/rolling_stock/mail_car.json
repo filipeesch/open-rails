@@ -1,0 +1,11 @@
+{
+  "id": "mail_car",
+  "display_name": "Mail Car",
+  "type": "wagon",
+  "asset": "mail_car",
+  "price": 5400.0,
+  "running_cost_month": 160.0,
+  "cargo": "mail",
+  "capacity": 35,
+  "weight_tons": 11.0
+}

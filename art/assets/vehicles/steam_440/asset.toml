@@ -1,0 +1,12 @@
+# `steam_440` — the V1 American 4-4-0 locomotive.
+id = "steam_440"
+type = "locomotive"
+lod_class = "locomotive"
+footprint = [1.00, 0.45]
+height = 0.63
+
+[animation]
+required_states = ["moving"]
+
+[company_colors]
+regions = ["primary", "secondary"]   # buffer beams / cab-side livery

@@ -1,0 +1,12 @@
+{
+  "id": "small_station",
+  "display_name": "Small Station",
+  "asset": "small_station",
+  "cost": 20000.0,
+  "footprint": [3, 2],
+  "catchment_tiles": 4.0,
+  "storage_per_cargo": 120,
+  "requires_straight_rail": true,
+  "rail_search_radius": 2,
+  "description": "One platform, one office, a small goods shed. Everything a line needs to start earning."
+}

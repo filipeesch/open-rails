@@ -1,0 +1,11 @@
+{
+  "id": "coal_hopper",
+  "display_name": "Coal Hopper",
+  "type": "wagon",
+  "asset": "coal_hopper",
+  "price": 4800.0,
+  "running_cost_month": 150.0,
+  "cargo": "coal",
+  "capacity": 45,
+  "weight_tons": 14.0
+}

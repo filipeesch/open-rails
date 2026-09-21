@@ -1,0 +1,9 @@
+# Founder's Valley coal mine — headframe, bunker, tipple shed, coal piles.
+id = "coal_mine"
+type = "industry"
+lod_class = "large_industry"
+footprint = [3.00, 2.00]
+height = 1.60
+
+[animation]
+required_states = ["working"]

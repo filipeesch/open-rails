@@ -1,0 +1,11 @@
+{
+  "id": "mail",
+  "display_name": "Mail",
+  "unit_label": "bags",
+  "base_rate": 11.0,
+  "time_sensitivity": 0.1,
+  "quality_floor": 0.45,
+  "colour": "#7ea8d8",
+  "wagon_required": true,
+  "tonnes_per_unit": 0.35
+}

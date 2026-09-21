@@ -1,0 +1,24 @@
+{
+  "id": "balance",
+  "comment": "V1 sandbox balancing. Founder's Valley must be beatable without perfect play.  Every key here is read by the code that prices the thing it names: a consist's monthly upkeep is priced by its own stock definitions, so no aggregate of it appears in this file.",
+  "starting_cash": 750000.0,
+  "default_company_name": "Founder's Railway",
+  "track": {
+    "cost_per_straight": 950.0,
+    "cost_per_diagonal": 1350.0,
+    "slope_surcharge": 700.0,
+    "maintenance_per_tile_month": 6.0,
+    "expensive_route_multiplier": 1.6
+  },
+  "planner": {
+    "turn_penalty": 0.55,
+    "slope_penalty": 1.9,
+    "reuse_bonus": 0.85,
+    "search_node_limit": 26000
+  },
+  "station": {
+    "small_station_cost": 20000.0,
+    "catchment_tiles": 4.0,
+    "storage_per_cargo": 120
+  }
+}

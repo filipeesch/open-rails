@@ -1,0 +1,12 @@
+{
+  "id": "coal_mine",
+  "display_name": "Coal Mine",
+  "asset": "coal_mine",
+  "footprint": [3, 3],
+  "produces": [
+    { "cargo": "coal", "rate_per_month": 20.0, "storage_capacity": 90 }
+  ],
+  "accepts": [],
+  "animation_state": "working",
+  "description": "A winding shaft, a tipple and a heap of black stone."
+}

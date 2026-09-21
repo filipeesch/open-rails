@@ -1,0 +1,9 @@
+# Founder's Valley hedge bush — trunkless cabbaged mound of offset foliage lobes.
+id = "bush"
+type = "bush"
+lod_class = "small_prop"
+footprint = [0.252, 0.244]   # bounds of the lobe mound, tile units (asset-scale.md: bushes <= 0.3)
+height = 0.205
+
+[animation]
+required_states = []       # static decoration

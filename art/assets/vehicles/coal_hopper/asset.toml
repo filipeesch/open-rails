@@ -1,0 +1,9 @@
+# Coal hopper — open-top iron box with a mounded coal load.
+id = "coal_hopper"
+type = "wagon"
+lod_class = "wagon"
+footprint = [0.70, 0.45]
+height = 0.42
+
+[animation]
+required_states = ["moving"]

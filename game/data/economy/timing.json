@@ -1,0 +1,22 @@
+{
+  "id": "timing",
+  "comment": "One place mapping real time to simulation time. Changing ticks_per_day changes pacing only; per-tick behaviour is unaffected.",
+  "tick_rate_hz": 20.0,
+  "ticks_per_day": 12,
+  "speeds": [
+    0.0,
+    1.0,
+    2.0,
+    4.0
+  ],
+  "start_year": 1850,
+  "autosave_every_months": 3,
+  "train": {
+    "min_dwell_ticks": 6,
+    "dwell_ticks_per_unit": 1.2,
+    "acceleration_per_tick": 0.06,
+    "braking_per_tick": 0.12,
+    "grade_speed_factor_per_step": 0.72,
+    "max_dwell_ticks": 120
+  }
+}

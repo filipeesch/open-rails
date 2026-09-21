@@ -1,0 +1,9 @@
+# Founder's Valley small house — one storey, gable roof, front door to +X.
+id = "house"
+type = "house"
+lod_class = "house"
+footprint = [0.70, 0.58]   # roof rectangle bounds the whole build, tile units
+height = 0.62
+
+[animation]
+required_states = []

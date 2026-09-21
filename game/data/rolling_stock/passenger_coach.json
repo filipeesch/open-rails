@@ -1,0 +1,11 @@
+{
+  "id": "passenger_coach",
+  "display_name": "Passenger Coach",
+  "type": "wagon",
+  "asset": "passenger_coach",
+  "price": 6200.0,
+  "running_cost_month": 180.0,
+  "cargo": "passengers",
+  "capacity": 40,
+  "weight_tons": 12.0
+}

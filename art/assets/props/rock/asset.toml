@@ -1,0 +1,9 @@
+# Founder's Valley boulder — jagged footing, dipped mass, cleaved 45° crown.
+id = "rock"
+type = "rock"
+lod_class = "small_prop"
+footprint = [0.278, 0.266]   # bounds of the fractured block cluster, tile units (asset-scale.md: rocks <= 0.3)
+height = 0.270
+
+[animation]
+required_states = []       # static decoration

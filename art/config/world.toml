@@ -1,0 +1,23 @@
+# Canonical world scale. Single source of truth for the whole repository.
+#
+# Every generated runtime constant and every art-side scale calculation reads
+# these values. Do not re-declare them inside an asset script or a gameplay
+# module -- run `python tools/rr.py check` to detect drift.
+
+[world]
+tile_size = 1.0
+height_step = 0.25
+default_chunk = 32
+map_width = 256
+map_height = 256
+
+[camera]
+default_yaw_degrees = 45.0
+fixed_pitch_degrees = 35.264
+zoom_close_tiles = 4.0
+zoom_default_tiles = 28.0
+zoom_far_tiles = 96.0
+snap_degrees = 45.0
+
+[station]
+catchment_tiles = 4.0

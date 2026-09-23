@@ -7,7 +7,7 @@ Defines the single V1 station class: where it may be built, how its catchment de
 ## ADDED Requirements
 
 ### Requirement: Station placement requires valid rail access
-A station SHALL require a footprint on buildable land and a rail cell providing rail access with an allowed alignment. Placement SHALL be rejected with a specific reason when no qualifying rail is adjacent, when the footprint overlaps water or occupied land, or when the required alignment is absent.
+A station SHALL require a footprint on buildable land and a rail cell providing rail access with an allowed alignment, found within the station class's `rail_search_radius` rings **outside its footprint**. Placement SHALL be rejected with a specific reason when no qualifying rail lies beside the yard, when the footprint overlaps water or occupied land, or when the required alignment is absent. Where more than one cell qualifies, the one nearest the yard's centre line SHALL be chosen. The chosen cell SHALL be stored with the station and read back by every consumer, so placement, simulation and drawing all mean the same rails.
 
 #### Scenario: No adjacent rail explains itself
 - **WHEN** the player attempts to place a station with no adjacent rail
@@ -16,6 +16,21 @@ A station SHALL require a footprint on buildable land and a rail cell providing 
 #### Scenario: Curved rail is rejected when straight is required
 - **WHEN** the only adjacent rail is a curve and the station requires a straight alignment
 - **THEN** placement is rejected with a reason naming the required straight rail
+
+#### Scenario: A yard that only overlooks the line is refused
+- **WHEN** a station's nearest qualifying rail is separated from its footprint by a gap of open ground beyond its search radius
+- **THEN** placement is rejected, and the reason says the line has to run beside the yard
+
+### Requirement: A station is drawn against the rails it serves
+A station's model SHALL be placed so its track-side edge lies on the lane of its access cell, kept within the ground its footprint claimed, and SHALL be turned to the direction of that run rather than to the camera. A station restored from a save SHALL be drawn at the same place and angle as when it was built.
+
+#### Scenario: The platform stands at the rails
+- **WHEN** a yard is built beside a straight run
+- **THEN** the model's track-side edge lies on that run's lane, no part of the platform overhangs ground the player did not buy, and the yard lies behind the deck
+
+#### Scenario: A yard on an east-west run is square to the rails
+- **WHEN** a station is drawn against an axis-aligned run
+- **THEN** its yaw is the run's direction, so on an east-west line it is a multiple of ninety degrees and not the projection's fixed forty-five
 
 ### Requirement: Station placement preview
 Before commitment the system SHALL display footprint, required rail alignment, catchment drawn on the terrain, which towns and industries are covered, the estimated cargo available per month and the cost. Commitment SHALL be blocked whenever the preview is invalid, and valid placement SHALL charge through `EconomyService`.
@@ -56,3 +71,14 @@ Each station SHALL have a stable identifier and a display name defaulting to the
 #### Scenario: Rename preserves identity
 - **WHEN** the player renames a station that a train route references
 - **THEN** the route still references the same station identifier
+
+### Requirement: A yard names the cell a train stands on
+Each station SHALL expose the rail cell its trains stand on — the one abreast the middle of the yard's own purchased ground, reachable along the line from the cell the yard couples to — as a fact of the yard, so routes, halts and the drawing of a standing train all answer the same question with the same cell. Where no such cell carries rail, the yard SHALL report the cell it couples to.
+
+#### Scenario: A wharf's berth is beside its deck
+- **WHEN** a yard is built at the end of a line, coupling to the only straight cell beside a longer frontage
+- **THEN** its berth is the cell abreast the middle of the frontage, on rail
+
+#### Scenario: Two trains on one yard
+- **WHEN** two consists are standing at the same yard
+- **THEN** both are asked for, and answer with, the same berth cell

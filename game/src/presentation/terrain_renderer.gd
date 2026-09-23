@@ -29,16 +29,39 @@ const SCENERY_ASSETS := {1: "tree", 2: "rock", 3: "bush"}
 const DEFAULT_SCENERY_ASSET := "tree"
 const HEIGHT_VARIANT := 0.02
 const NOISE_AMOUNT := 0.055
+## How far a body swings, and how often.  A tide the size of a fingernail, at the
+## pace of breath: enough to see the water is not painted on, cheap enough that it
+## costs one float per body per frame.
+const WATER_BOB_AMPLITUDE := 0.045
+const WATER_BOB_RATE := 0.85
+## How far from the view a body may be and still be moved.  Beyond it the surface
+## is not drawn larger than a pixel, and animating it would be work for no one.
+const WATER_NEAR_TILES := 120.0
+const NEIGHBOURS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+const QUAD_CORNERS: Array[Vector2i] = [
+		Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 1)]
 
 var world: WorldGrid
 var material: StandardMaterial3D
 var water_material: StandardMaterial3D
-var water_mesh_source: MeshInstance3D
+var water_bodies_root: Node3D
 var catalog: ModelCatalog
+## Where the player is looking, as a world position.  Set by the game root from the
+## camera rig; left unset, every body is animated, because a renderer with no view
+## has no business deciding what the player cannot see.
+var view_source: Callable = Callable()
 
 var _chunks := {}
 var _scenery := {}
 var _water_quads := 0
+var _water_bodies: Array[Dictionary] = []
+## Which body each cell belongs to, or -1 for dry ground.  The renderer needs the
+## answer per tile — a test, a tooltip and the shoreline effect all ask "which
+## surface is this?" — and it must not have to walk a river to say so.
+var _water_body_of_cell := PackedInt32Array()
+var _water_rebuilds := 0
+var _water_animated := 0
+var _water_time := 0.0
 var _pending: Array[Vector2i] = []
 var _rebuilt_total := 0
 var _rebuilt_this_second := 0
@@ -65,16 +88,18 @@ func _init() -> void:
 
 func attach(grid: WorldGrid) -> void:
 	world = grid
-	water_mesh_source = MeshInstance3D.new()
-	water_mesh_source.name = "WaterSurface"
-	water_mesh_source.material_override = water_material
-	add_child(water_mesh_source)
+	water_bodies_root = Node3D.new()
+	water_bodies_root.name = "WaterBodies"
+	add_child(water_bodies_root)
 	_build_all()
 
 
-func tick() -> void:
+## Advance the renderer's own work.  `delta` is the frame time; left out, the node's
+## process delta is used, and a test may hand in the clock it wants to see.
+func tick(delta: float = -1.0) -> void:
 	if world == null:
 		return
+	_animate_water(delta if delta >= 0.0 else get_process_delta_time())
 	for chunk in world.take_dirty_chunks():
 		_queue(chunk)
 	# The grid reports the chunk that holds the tile; the skirt means the mesh of
@@ -197,6 +222,82 @@ func water_quads() -> int:
 	return _water_quads
 
 
+## How many separate surfaces the water became — one per body, not one per tile
+## and not one for the whole map.  Two lakes that share no edge are two bodies, so
+## they can be moved, and skipped, separately.
+func water_body_count() -> int:
+	return _water_bodies.size()
+
+
+func water_body_nodes() -> Array[MeshInstance3D]:
+	var nodes: Array[MeshInstance3D] = []
+	for body in _water_bodies:
+		nodes.append(body["node"])
+	return nodes
+
+
+## The surface a water tile belongs to, or null when the tile is dry ground.
+func water_body_at(tile: Vector2i) -> MeshInstance3D:
+	if world == null or not world.in_bounds(tile):
+		return null
+	if world.terrain_at(tile) != WorldGrid.Terrain.WATER:
+		return null
+	var wanted := tile.y * world.width + tile.x
+	if wanted < 0 or wanted >= _water_body_of_cell.size():
+		return null
+	var index := int(_water_body_of_cell[wanted])
+	if index < 0 or index >= _water_bodies.size():
+		return null
+	return _water_bodies[index]["node"]
+
+
+func water_rebuilds() -> int:
+	return _water_rebuilds
+
+
+## Bodies moved on the last frame.  This is the whole per-frame cost of the water,
+## in units a reader can check: zero means nothing was written for it.
+func water_animated_last_tick() -> int:
+	return _water_animated
+
+
+## Where the water thinks the player is.  Public because the test and the debug
+## overlay both need to ask what the renderer believed, rather than guess.
+func water_view_focus() -> Vector3:
+	return _view_focus()
+
+
+## Move every body the player can still resolve as a surface.
+##
+## The animation is a transform, not a simulation: no state accumulates, nothing
+## per tile is touched, and a body outside the view is skipped by a distance
+## comparison rather than by building anything.  Water is presentation, so the
+## clock it reads is the frame clock — the simulation never sees it.
+func _animate_water(delta: float) -> void:
+	_water_time += delta
+	_water_animated = 0
+	var focus := _view_focus()
+	for body in _water_bodies:
+		var reach := maxf(WATER_NEAR_TILES, float(body["radius"]))
+		if focus != Vector3.INF and focus.distance_to(body["centre"]) > reach:
+			continue
+		var node: MeshInstance3D = body["node"]
+		var base := Vector3(body["centre"])
+		base.y += WATER_BOB_AMPLITUDE * sin(_water_time * WATER_BOB_RATE + float(body["phase"]))
+		node.position = base
+		_water_animated += 1
+
+
+func _view_focus() -> Vector3:
+	if not view_source.is_valid():
+		return Vector3.INF
+	var value: Variant = view_source.call()
+	return value if typeof(value) == TYPE_VECTOR3 else Vector3.INF
+
+
+
+
+
 ## Ground elevation under a world position.  Placement ghosts, drop shadows and
 ## pointer rays all ask this, and none of them may need a mesh to answer: the
 ## sample reads the height array, so it is the same cost offscreen as on.
@@ -210,31 +311,91 @@ func force_full_rebuild() -> void:
 	_rebuild_all()
 
 
-## Water is one mesh, not a node per lake: a translucent quad over every water
-## cell, sitting half a step below the banks so the shoreline reads as an edge.
+## Water, as one surface per body: a flood fill groups the cells, and each group
+## becomes a single translucent mesh sitting two steps below the banks so the
+## shoreline reads as an edge.  Per body rather than one sheet for the whole map,
+## because the body is the unit the player sees and the unit a frame can skip: the
+## river can breathe while the lake is offscreen and costs nothing.
 func _rebuild_water() -> void:
+	_water_rebuilds += 1
+	for body in _water_bodies:
+		var old: MeshInstance3D = body["node"]
+		old.free()
+	_water_bodies.clear()
+	var seen := PackedByteArray()
+	seen.resize(world.width * world.height)
+	_water_body_of_cell.resize(world.width * world.height)
+	_water_body_of_cell.fill(-1)
+	for y in world.height:
+		for x in world.width:
+			var start := y * world.width + x
+			if seen[start] == 1 or world.terrain[start] != WorldGrid.Terrain.WATER:
+				continue
+			var cells := _flood_water(start, seen)
+			for cell in cells:
+				_water_body_of_cell[cell] = _water_bodies.size()
+			_water_bodies.append(_make_water_body(cells, _water_bodies.size()))
+	_water_quads = 0
+	for body in _water_bodies:
+		_water_quads += int(body["quads"])
+
+
+## The connected run of water cells containing `start`, marked as seen in place.
+## Four-neighbour on purpose: water that only touches at a corner is two bodies
+## that happen to meet, and drawing them apart is the honest read of the map.
+func _flood_water(start: int, seen: PackedByteArray) -> Array[int]:
+	var cells: Array[int] = [start]
+	var stack: Array[int] = [start]
+	seen[start] = 1
+	var width := world.width
+	while not stack.is_empty():
+		var index: int = stack.pop_back()
+		var x := index % width
+		var y := int(index / float(width))
+		for step in NEIGHBOURS:
+			var nx: int = x + step.x
+			var ny: int = y + step.y
+			if nx < 0 or ny < 0 or nx >= world.width or ny >= world.height:
+				continue
+			var next := ny * width + nx
+			if seen[next] == 1 or world.terrain[next] != WorldGrid.Terrain.WATER:
+				continue
+			seen[next] = 1
+			cells.append(next)
+			stack.append(next)
+	return cells
+
+
+## One water body: one node, one mesh, one draw call.
+##
+## The mesh is built in space local to the body's own centre and the node is put
+## at that centre, which is what makes the animation cheap: the whole surface
+## moves with one transform, so a lake costs a float write per frame whether it is
+## twelve tiles or twelve hundred.  No simulation runs here — nothing is stored
+## per frame, nothing accumulates, and no physics body exists to be stepped.
+func _make_water_body(cells: Array[int], index: int) -> Dictionary:
+	var centre := Vector3.ZERO
+	for cell in cells:
+		centre += Vector3(float(cell % world.width) + 0.5, 0.0,
+				float(int(cell / float(world.width))) + 0.5)
+	centre /= float(cells.size())
+	centre.y = WorldConstants.HEIGHT_STEP * 2.0
+	var radius := 0.0
 	var vertices := PackedVector3Array()
 	var indices := PackedInt32Array()
 	var colours := PackedColorArray()
-	var level := WorldConstants.HEIGHT_STEP * 2.0
-	for y in world.height:
-		for x in world.width:
-			var tile := Vector2i(x, y)
-			if world.terrain_at(tile) != WorldGrid.Terrain.WATER:
-				continue
-			var start := vertices.size()
-			vertices.append(Vector3(float(x), level, float(y)))
-			vertices.append(Vector3(float(x + 1), level, float(y)))
-			vertices.append(Vector3(float(x + 1), level, float(y + 1)))
-			vertices.append(Vector3(float(x), level, float(y + 1)))
-			var tint := Color(0.31, 0.50, 0.62, 0.82).lightened(_noise(tile) * 0.04)
-			for _corner in 4:
-				colours.append(tint)
-			indices.append_array(PackedInt32Array([start, start + 1, start + 2, start, start + 2, start + 3]))
-	if vertices.is_empty():
-		water_mesh_source.mesh = null
-		_water_quads = 0
-		return
+	for cell in cells:
+		var tile := Vector2i(cell % world.width, int(cell / float(world.width)))
+		var start := vertices.size()
+		for corner in QUAD_CORNERS:
+			var offset := Vector3(corner.x, 0.0, corner.y)
+			var local := Vector3(float(tile.x) + offset.x, 0.0, float(tile.y) + offset.y) - centre
+			vertices.append(local)
+			radius = maxf(radius, Vector2(local.x, local.z).length())
+		var tint := Color(0.31, 0.50, 0.62, 0.82).lightened(_noise(tile) * 0.04)
+		for _corner in 4:
+			colours.append(tint)
+		indices.append_array(PackedInt32Array([start, start + 1, start + 2, start, start + 2, start + 3]))
 	var mesh := ArrayMesh.new()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -242,8 +403,21 @@ func _rebuild_water() -> void:
 	arrays[Mesh.ARRAY_COLOR] = colours
 	arrays[Mesh.ARRAY_INDEX] = indices
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	water_mesh_source.mesh = mesh
-	_water_quads = int(indices.size() / 6)
+	var node := MeshInstance3D.new()
+	node.name = "WaterBody_%d" % index
+	node.material_override = water_material
+	node.position = centre
+	node.mesh = mesh
+	# Carried on the node because the overlay and the tests both want to know what
+	# a surface is made of, and neither should have to count index buffers.
+	node.set_meta("quads", cells.size())
+	water_bodies_root.add_child(node)
+	# The phase comes from the body's position, not from `randf()`: a valley must
+	# look the same every time it is opened, and two lakes should not breathe in
+	# lockstep because a shared clock would read as one surface, not two.
+	return {"node": node, "centre": centre, "radius": radius, "quads": cells.size(),
+			"phase": (centre.x * 0.7 + centre.z * 1.3)}
+
 
 
 # --- scenery --------------------------------------------------------------

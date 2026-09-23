@@ -1,0 +1,14 @@
+{
+  "_note": "Company liveries. A livery is exactly two colours from art/config/material_palette.json painted onto the two shared company-colour materials, so one asset renders any company. V1 has one company: the livery is chosen from the company's name, deterministically and with no screen to pick paint, so a name typed twice earns the same colours in the same engine and in the next one. Names are 1850s road-name paint, not brand trade marks.",
+  "default_livery": "crimson_ochre",
+  "liveries": [
+    { "id": "crimson_ochre", "name": "Crimson & Ochre", "primary": "#B8452C", "secondary": "#F2E8D5" },
+    { "id": "prussian_blue", "name": "Prussian Blue", "primary": "#24425E", "secondary": "#C8B08A" },
+    { "id": "selenium_green", "name": "Selenium Green", "primary": "#2F5A3F", "secondary": "#D9CBA3" },
+    { "id": "locomotive_brown", "name": "Locomotive Brown", "primary": "#4A3226", "secondary": "#D8C29A" },
+    { "id": "oxide_red", "name": "Oxide Red", "primary": "#7A2E22", "secondary": "#E2D6BC" },
+    { "id": "slate_and_brass", "name": "Slate & Brass", "primary": "#3B3F46", "secondary": "#C7A24B" },
+    { "id": "venetian_red", "name": "Venetian Red", "primary": "#93402F", "secondary": "#F0E4C8" },
+    { "id": "pine_black", "name": "Pine Black", "primary": "#23262A", "secondary": "#B9B9A0" }
+  ]
+}

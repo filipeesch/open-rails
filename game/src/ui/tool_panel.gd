@@ -11,6 +11,14 @@ var detail_label: Label
 var cost_label: Label
 var hint_label: Label
 var action_button: Button
+## The build palette — the three tools a build mode has, named exactly what
+## they arm.  Living inside the tool panel means the switch between rail,
+## station and removal is one click wherever the player already is, instead of
+## a trip back to the bottom toolbar.
+var palette_box: HBoxContainer
+var rail_button: Button
+var station_button: Button
+var remove_button: Button
 var _tiles: Array[Vector2i] = []
 var _state := "none"
 var _reason := ""
@@ -31,6 +39,17 @@ func attach(game_session: GameSession, controller: InputController) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 6)
 	add_child(column)
+
+	palette_box = HBoxContainer.new()
+	palette_box.add_theme_constant_override("separation", 4)
+	column.add_child(palette_box)
+	# The hint carries the action, not a letter: whatever the InputMap has bound is
+	# what the tooltip says, and a tool with no key advertised none.  `S` spent years
+	# here as the station shortcut while the engine was busy panning the camera with
+	# it; the hint could say that because nothing read the map to check.
+	rail_button = _palette_button("Rail", "Lay a line of track", InputController.TOOL_RAIL, "build_mode")
+	station_button = _palette_button("Station", "Place a station", InputController.TOOL_STATION)
+	remove_button = _palette_button("Remove", "Lift track and take half the cost back", InputController.TOOL_REMOVE)
 
 	title_label = GameTheme.heading("Tool")
 	column.add_child(title_label)
@@ -62,10 +81,34 @@ func configure(game_session: GameSession, controller: InputController) -> void:
 	attach(game_session, controller)
 
 
+## One palette button.  It arms through `InputController` — the same door the
+## toolbar and the keyboard use — so arming stays one state machine with one
+## notification, not a second path that could disagree with the first.
+func _palette_button(label: String, hint: String, tool: String, action: String = "") -> Button:
+	var button := Button.new()
+	button.text = label
+	button.tooltip_text = hint + KeyHints.hint_suffix(action)
+	button.focus_mode = Control.FOCUS_ALL
+	# Without `toggle_mode` the engine silently refuses to hold `button_pressed`,
+	# and the mark that says "this is the tool in hand" never appears.
+	button.toggle_mode = true
+	button.pressed.connect(func() -> void: input.arm_tool(tool))
+	palette_box.add_child(button)
+	return button
+
+
 func _on_tool(tool: String) -> void:
 	_state = "none"
 	_tiles = []
 	visible = tool != InputController.TOOL_NONE
+	# The palette marks the tool in hand so a glance says which of the three is
+	# armed; pressing the marked one again is the same put-down as Escape.
+	rail_button.button_pressed = tool == InputController.TOOL_RAIL
+	station_button.button_pressed = tool == InputController.TOOL_STATION
+	remove_button.button_pressed = tool == InputController.TOOL_REMOVE
+	for button in [rail_button, station_button, remove_button]:
+		button.add_theme_color_override("font_color",
+			GameTheme.ACCENT if button.button_pressed else GameTheme.TEXT)
 	# Stop-picking belongs to the trains drawer, which explains it where the
 	# player is already looking; two panels in this band would fight.
 	if tool == InputController.TOOL_STOP_PICK:
@@ -86,6 +129,10 @@ func _on_tool(tool: String) -> void:
 			title_label.text = "Place station"
 			detail_label.text = "A station needs straight rail within reach and undeveloped ground.  Green means legal."
 			hint_label.text = "Sources inside the catchment are listed below."
+		InputController.TOOL_REMOVE:
+			title_label.text = "Remove track"
+			detail_label.text = "Click laid track to lift it.  Half the build cost comes back; rail a station needs for access is refused."
+			hint_label.text = "Undo (Ctrl+Z) lays a lifted tile back and takes the refund back with it."
 	_update()
 
 
@@ -120,8 +167,15 @@ func _update() -> void:
 			cost_label.add_theme_color_override("font_color", GameTheme.TEXT)
 			detail_label.modulate = Color.WHITE
 		"ok":
-			cost_label.text = "%s  ·  %d tiles" % [GameTheme.money(_cost), _tiles.size()] \
-				if _cost > 0.0 else "Ready"
+			# A removal carries a negative cost — money coming back.  Showing it as
+			# a plain price would tell the player to expect a charge, so refunds are
+			# signed and worded the other way round.
+			if _cost < 0.0:
+				cost_label.text = "%s  ·  refund %d tile%s" % [GameTheme.signed_money(-_cost),
+					_tiles.size(), "" if _tiles.size() == 1 else "s"]
+			else:
+				cost_label.text = "%s  ·  %d tiles" % [GameTheme.money(_cost), _tiles.size()] \
+					if _cost > 0.0 else "Ready"
 			cost_label.add_theme_color_override("font_color", GameTheme.GOOD)
 			action_button.text = "Click to build"
 		"expensive":

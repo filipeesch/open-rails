@@ -73,3 +73,24 @@ static func distance_tiles(a: Vector2i, b: Vector2i) -> float:
 
 static func chebyshev(a: Vector2i, b: Vector2i) -> int:
 	return int(maxi(absi(a.x - b.x), absi(a.y - b.y)))
+
+
+## The yaw that aims a model's own +X along a tile-space direction.
+##
+## Rolling stock and stations are authored with their length along +X — the art
+## library says so out loud: `forward +X, axle Y` — while the world lays a tile's
+## second axis down world Z, and Godot's Y rotation sends local +X to
+## `(cos θ, -sin θ)`.  So the angle a model needs is not the angle of the
+## direction as it reads on the tile grid, and the difference is not subtle: get it
+## wrong and a train is drawn broadside to its own rails.  Everything that has to
+## lie along a track asks here, so a vehicle and the platform beside it cannot
+## disagree about which way the line runs.
+static func yaw_for_direction(direction: Vector2) -> float:
+	if direction == Vector2.ZERO:
+		return 0.0
+	return atan2(-direction.y, direction.x)
+
+
+## `yaw_for_direction` in degrees, for a node driven by `rotation_degrees`.
+static func yaw_degrees_for_direction(direction: Vector2) -> float:
+	return rad_to_deg(yaw_for_direction(direction))

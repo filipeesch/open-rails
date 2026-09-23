@@ -39,6 +39,40 @@ static func load_map(map_id: String) -> MapDocument:
 	return document
 
 
+## Read a map that is already a parsed dictionary.
+##
+## The file loader is a thin shell over this, which is what lets a generated
+## valley — a test map, a future map editor, a mod handed over the wire — be
+## decoded by the shipped path instead of by a second implementation that drifts.
+func load_dictionary(data: Dictionary, source: String) -> void:
+	id = String(data.get("id", source))
+	display_name = String(data.get("display_name", id))
+	width = int(data.get("width", 0))
+	height = int(data.get("height", 0))
+	if width <= 0 or height <= 0:
+		errors.append(source + ": missing or non-positive width/height")
+		return
+	var expected := width * height
+	heights = _decode(data.get("heights", {}), expected, source, "heights")
+	var terrain_values := _decode_strings(data.get("terrain", {}), expected, source, "terrain")
+	terrain = PackedByteArray()
+	terrain.resize(expected)
+	for index in expected:
+		terrain[index] = _terrain_code(String(terrain_values[index]))
+	for town in data.get("towns", []):
+		if not _has_tile(town, source, "town"):
+			continue
+		towns.append(town)
+	for industry in data.get("industries", []):
+		if not _has_tile(industry, source, "industry"):
+			continue
+		if String(industry.get("definition", "")) == "":
+			errors.append("%s: industry '%s' names no definition" % [source, String(industry.get("id", "?"))])
+			continue
+		industries.append(industry)
+	_read_features(data, source)
+
+
 func read(map_id: String) -> void:
 	var path := MAP_ROOT.path_join(map_id + ".json")
 	if not FileAccess.file_exists(path):
@@ -48,33 +82,7 @@ func read(map_id: String) -> void:
 	if parsed == null or typeof(parsed) != TYPE_DICTIONARY:
 		errors.append("map is not a JSON object: " + path)
 		return
-	var data: Dictionary = parsed
-	id = String(data.get("id", map_id))
-	display_name = String(data.get("display_name", id))
-	width = int(data.get("width", 0))
-	height = int(data.get("height", 0))
-	if width <= 0 or height <= 0:
-		errors.append(path + ": missing or non-positive width/height")
-		return
-	var expected := width * height
-	heights = _decode(data.get("heights", {}), expected, path, "heights")
-	var terrain_values := _decode_strings(data.get("terrain", {}), expected, path, "terrain")
-	terrain = PackedByteArray()
-	terrain.resize(expected)
-	for index in expected:
-		terrain[index] = _terrain_code(String(terrain_values[index]))
-	for town in data.get("towns", []):
-		if not _has_tile(town, path, "town"):
-			continue
-		towns.append(town)
-	for industry in data.get("industries", []):
-		if not _has_tile(industry, path, "industry"):
-			continue
-		if String(industry.get("definition", "")) == "":
-			errors.append("%s: industry '%s' names no definition" % [path, String(industry.get("id", "?"))])
-			continue
-		industries.append(industry)
-	_read_features(data, path)
+	load_dictionary(parsed, path)
 
 
 ## Decode the feature list, if the map has one.  Absent means "no scenery",

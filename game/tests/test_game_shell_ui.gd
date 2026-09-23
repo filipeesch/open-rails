@@ -40,13 +40,17 @@ func test_the_top_bar_reports_what_the_domain_told_it() -> void:
 	var cash_before := view.session.economy.cash
 	var date_before := hud.date_label.text
 
-	view.session.clock.step_ticks(372 * 4)
+	view.session.clock.step_ticks((view.session.clock.ticks_per_day * 30) * 4)
 
 	check_neq(hud.date_label.text, date_before, "a month of ticks moved the date, unasked")
 	check_neq(float(view.session.economy.cash), cash_before, "and money moved")
 	check_eq(hud.cash_label.text, GameTheme.money_compact(view.session.economy.cash),
 			"the bar shows the cash the ledger actually holds")
-	check_has(hud.profit_label.text, "/mo", "the profit chip keeps its unit")
+	check_eq(hud.profit_label.text, "%s/mo" % GameTheme.signed_money(
+			float(view.session.economy.current_month_totals()["profit"])),
+			"the profit chip states the figure the ledger holds, unit and all")
+	check_true(not hud.profit_label.text.begins_with("…"),
+			"and it is that figure rather than the string the label was built with")
 
 	view.session.clock.set_speed_index(2)
 	hud._refresh()
@@ -67,9 +71,58 @@ func test_the_top_bar_marks_a_losing_company_as_losing() -> void:
 	view.session.economy.spend(12000.0, EconomyService.CATEGORY_MAINTENANCE, "Bills")
 	check_eq(hud.cash_label.text, GameTheme.money_compact(view.session.economy.cash),
 			"a payment is on the bar the moment it is charged")
-	view.session.clock.step_ticks(372)
+	view.session.clock.step_ticks(view.session.clock.ticks_per_day * 30 + 6)
 	check_has(hud.profit_label.text, "-", "a month of loss reads as a loss")
 	hud.free()
+
+
+func test_the_profit_bar_carries_a_number_from_the_very_first_frame() -> void:
+	# The bar is change-driven, and every field's "last seen" figure starts at the
+	# value the first answer may itself have: 0, and "".  Compared bare, that first
+	# answer is never noticed as a change, and the game was played with the label's
+	# construction string on the top bar for its whole life because nothing had ever
+	# been worth writing.  A placeholder is allowed to exist for one frame, not for a
+	# sandbox.  What is graded is therefore the placeholder's absence and the sign of
+	# the figure — the number itself belongs to the valley, and this fixture's valley
+	# runs a coal line, so it is not level.
+	var hud := Hud.new()
+	hud.attach(view.session)
+	var profit := float(view.session.economy.current_month_totals()["profit"])
+	check_neq(hud.profit_label.text, "…/mo", "the construction string is not on screen")
+	check_true(not hud.profit_label.text.begins_with("…"),
+			"nothing of the placeholder survives the first refresh")
+	check_has(hud.profit_label.text, "/mo", "the field is a rate, as the bar promises")
+	if profit < 0.0:
+		check_true(hud.profit_label.text.begins_with("-"),
+				"a valley running in the red is shown with a minus: %s for %s" % [
+					hud.profit_label.text, GameTheme.money(profit)])
+	else:
+		check_true(hud.profit_label.text.begins_with("+"),
+				"a valley level or ahead is shown with a plus: %s for %s" % [
+					hud.profit_label.text, GameTheme.money(profit)])
+	check_eq(hud.date_label.text, view.session.clock.date.display(),
+			"the date is there before anything has ever changed")
+	check_eq(hud.cash_label.text, GameTheme.money_compact(view.session.economy.cash),
+			"and so is the opening balance")
+	hud.free()
+
+
+func test_a_month_that_is_exactly_level_is_written_out_as_level() -> void:
+	# The case the fix was aimed at, in the one state that triggers it: an empty grid
+	# earns and spends nothing, so its profit is exactly the sentinel the change test
+	# compared against, and the old code judged "no change" and left the placeholder
+	# on screen forever.
+	var blank := GameSession.new()
+	blank.start_blank(16, 16)
+	var hud := Hud.new()
+	hud.attach(blank)
+	check_near(float(blank.economy.current_month_totals()["profit"]), 0.0,
+			"a bare grid is level to the cent", 0.001)
+	check_eq(hud.profit_label.text, "+$0/mo",
+			"and the bar says so, rather than trailing off where the number should be")
+	check_neq(hud.cash_label.text, "", "the opening balance is on the bar unasked too")
+	hud.free()
+	TestSession.dispose(blank)
 
 
 # --- 1.5 bottom toolbar ----------------------------------------------------

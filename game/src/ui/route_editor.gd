@@ -36,9 +36,20 @@ var _stop_rows: Array[Dictionary] = []
 var _picking := false
 var _dirty := true
 var _syncing := false
+var _built := false
 
 
 func _ready() -> void:
+	_ensure_built()
+
+
+## Build once, whoever arrives: `_ready` in the shipped scene, `attach` for an
+## orphan host.  A page that builds only in `_ready` cannot be read by anything
+## that never enters a tree, so the drawer's own tests could not see it.
+func _ensure_built() -> void:
+	if _built:
+		return
+	_built = true
 	add_theme_stylebox_override("panel", GameTheme.panel(GameTheme.BACKGROUND))
 	_build()
 
@@ -47,6 +58,7 @@ func attach(game_session: GameSession, input: InputController, rig: IsoCameraRig
 	session = game_session
 	controller = input
 	camera_rig = rig
+	_ensure_built()
 	# Entity signals come off the session façade; route bookkeeping is only
 	# emitted by `RouteService`, so that one is subscribed at service level.
 	session.station_created.connect(_on_entity_changed)
@@ -176,9 +188,15 @@ func _clear_route() -> void:
 
 func _commit(stops: Array[Dictionary], announce: bool) -> void:
 	if stops.size() < 2:
-		# Below two stops there is no route to create yet, so the picks are held
+		# Below two stops there is no route to create, so the picks are held
 		# here and said out loud instead of asking the domain to refuse every
-		# click on the way to a legal timetable.
+		# click on the way to a legal timetable.  But a draft that *shrank*
+		# below two stops cannot just be held: the train would keep running a
+		# timetable the editor no longer shows.  The honest commit is to take
+		# that timetable down, once, and say so.
+		if session.trains.route_of(train_id) != 0:
+			session.trains.clear_route(train_id)
+			session.notify("A route needs two stops — the route was cleared.", "info")
 		_pending = stops
 		_refusal = ""
 		_dirty = true
@@ -299,7 +317,7 @@ func _paint_stops() -> void:
 	var stops := _draft_stops()
 	while _stop_rows.size() > stops.size():
 		var extra: Dictionary = _stop_rows.pop_back()
-		extra["panel"].queue_free()
+		GameTheme.release(extra["panel"])
 	while _stop_rows.size() < stops.size():
 		var row := _make_stop_row()
 		_stop_rows.append(row)
@@ -337,7 +355,7 @@ func _paint_chips(row: Dictionary, key: String, route_id: int, index: int, stop:
 		signature += String(option["cargo"]) + "|"
 	if signature != String(row[key + "_key"]):
 		for child in box.get_children():
-			child.queue_free()
+			GameTheme.release(child)
 		chips = {}
 		for option in options:
 			var cargo_id := String(option["cargo"])
@@ -446,7 +464,7 @@ func _paint_reachable() -> void:
 		return
 	_reachable_key = signature
 	for child in _reachable_box.get_children():
-		child.queue_free()
+		GameTheme.release(child)
 	if candidates.is_empty():
 		_reachable_box.add_child(GameTheme.paragraph(
 			"No other station is on this line — lay rail and build one first.",

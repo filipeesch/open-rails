@@ -31,9 +31,20 @@ var _buy_button: Button
 var _reason_label: Label
 var _station_key := ""
 var _dirty := true
+var _built := false
 
 
 func _ready() -> void:
+	_ensure_built()
+
+
+## Build once, whoever arrives: `_ready` in the shipped scene, `attach` for an
+## orphan host.  The yard built only in `_ready` would be an empty box in any
+## host that wires it directly, which is every host that tests it.
+func _ensure_built() -> void:
+	if _built:
+		return
+	_built = true
 	add_theme_stylebox_override("panel", GameTheme.panel(GameTheme.BACKGROUND))
 	_build()
 
@@ -41,6 +52,7 @@ func _ready() -> void:
 func attach(game_session: GameSession, rig: IsoCameraRig) -> void:
 	session = game_session
 	camera_rig = rig
+	_ensure_built()
 	_fill_loco_select()
 	_fill_wagons()
 	session.station_created.connect(_on_changed)

@@ -13,8 +13,12 @@ extends RefCounted
 ## connection endpoint, so piece counts are read back as triangles / 10.
 const HALF_TRACK_TRIANGLES := 10
 
-const BALLAST_LIFT := 0.02
-const RAIL_LIFT := 0.07
+## The two heights are read from the renderer's own authority.  Figures copied into
+## a test could only ever check the drawing against itself, which is how the rails
+## and the rolling stock came to disagree about where the rail head is.
+const BALLAST_LIFT := TrackPieces.LIFT_BALLAST
+## The running surface above the tile surface: where a wheel touches the rail.
+const RIDE_HEIGHT := TrackPieces.RIDE_HEIGHT
 const EPSILON := 0.0001
 
 

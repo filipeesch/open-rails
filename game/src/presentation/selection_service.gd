@@ -271,8 +271,11 @@ func nearest_train(world_point: Vector2) -> int:
 
 
 func _screen_pixel(point: Vector3, rect: Rect2) -> Vector2:
-	var normalized := camera_rig.world_to_screen(point, rect)
-	return rect.position + normalized * rect.size
+	# `world_to_screen` speaks pixels relative to the rect, and the rect's own
+	# origin turns that into a pixel of the window.  A point behind the camera has
+	# no pixel: the infinities travel on, the distance test below fails against
+	# them, and a train the player cannot see is never picked.
+	return rect.position + camera_rig.world_to_screen(point, rect)
 
 
 # --- picking --------------------------------------------------------------

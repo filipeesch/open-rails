@@ -23,6 +23,7 @@ extends RefCounted
 
 # --- world scale ---
 const TILE_SIZE := {tile_size}
+const TILE_METRES := {metres_per_tile}
 const HEIGHT_STEP := {height_step}
 const CHUNK_SIZE := {default_chunk}
 const MAP_WIDTH := {map_width}
@@ -58,7 +59,14 @@ def render(repo_root: Path) -> str:
     station = data.get("station", {})
     missing = [
         key
-        for key in ("tile_size", "height_step", "default_chunk", "map_width", "map_height")
+        for key in (
+            "tile_size",
+            "height_step",
+            "default_chunk",
+            "map_width",
+            "map_height",
+            "metres_per_tile",
+        )
         if key not in world
     ] + [
         key
@@ -76,6 +84,7 @@ def render(repo_root: Path) -> str:
         raise ValueError(f"{config.config_path(repo_root)}: missing keys {missing}")
     return _TEMPLATE.format(
         tile_size=_fmt(float(world["tile_size"])),
+        metres_per_tile=_fmt(float(world["metres_per_tile"])),
         height_step=_fmt(float(world["height_step"])),
         default_chunk=_fmt(int(world["default_chunk"])),
         map_width=_fmt(int(world["map_width"])),

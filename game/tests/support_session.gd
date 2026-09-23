@@ -9,6 +9,34 @@ extends RefCounted
 ## service a hand-made entity.
 
 
+## The ticks the shipped coal line's legs take — measured, not remembered.  The
+## two works sit ninety tiles apart, a tile is `TILE_METRES` across, and a 4-4-0
+## is rated at 78 km/h, which puts the long leg a little over 1 500 ticks and a
+## full lap a little over 3 500.  A fixture that needs a delivery waits through
+## these: a budget picked when the world ran twelve times faster is not a budget,
+## it is a stale guess, and it fails for a reason no player would recognise.
+const LEG_TICKS := 1700
+const LAP_TICKS := 3600
+## The ticks before a ton actually changes hands on that line, measured: the
+## consist starts empty, the colliery fills its platform at the rate the calendar
+## allows, and only then does a loaded leg cross to the works.  It is the number
+## behind every fixture that waits for a delivery, and it is comfortably larger
+## than a leg — which is why a budget borrowed from one does not deliver anything.
+const DELIVERY_TICKS := 6000
+
+
+## Steps the clock until `done` answers true or `budget_ticks` run out, and
+## returns how many it spent.  Still one tick at a time, so the run stays
+## identical to any other: waiting for a thing to happen is a stronger promise
+## than waiting for a count that was chosen when the thing happened to be quick.
+static func run_until(session: GameSession, done: Callable, budget_ticks: int) -> int:
+	var spent := 0
+	while spent < budget_ticks and not bool(done.call()):
+		session.clock.step_ticks(1)
+		spent += 1
+	return spent
+
+
 static func create(map_name: String = "founders_valley") -> GameSession:
 	var session := GameSession.new()
 	if not session.start(map_name):
@@ -56,7 +84,12 @@ static func spur_tiles(anchor: Vector2i) -> Array[Vector2i]:
 
 
 ## Lays a straight run beside an entity: five collinear cells, so the middle of
-## the run is real through line a station can claim as access.
+## the run is real through line a station can claim as access.  The row is two
+## tiles out because a yard has to stand in the ring between the spur and the
+## entity it serves, and a yard that fits there is a yard a player can really
+## build.
+const SPUR_OFFSET := Vector2i(0, -2)
+
 static func lay_spur(session: GameSession, anchor: Vector2i) -> Dictionary:
 	var tiles := spur_tiles(anchor)
 	var built := session.builder.build_track_run(tiles)
@@ -66,12 +99,14 @@ static func lay_spur(session: GameSession, anchor: Vector2i) -> Dictionary:
 ## Builds a station that actually serves the entity at `tile`: legal placement
 ## *and* the entity inside its catchment, as load or as sink.  Placement alone is
 ## a weaker promise than the tool panel makes, so a fixture must not settle for
-## it.  Returns the station id, or 0 when nothing works — which in a test means a
+## it.  The window is wider than a catchment because a yard has to stand beside
+## the spur as well as reach the entity, and those two rings do not coincide.
+## Returns the station id, or 0 when nothing works — which in a test means a
 ## real bug, not a skipped case.
 static func station_for_tile(session: GameSession, tile: Vector2i, label: String = "",
 		require_served: bool = true) -> int:
-	for dy in range(-4, 5):
-		for dx in range(-4, 5):
+	for dy in range(-6, 7):
+		for dx in range(-6, 7):
 			var anchor := Vector2i(tile.x + dx, tile.y + dy)
 			var preview := session.builder.preview_station("small_station", anchor)
 			if not bool(preview["ok"]):
@@ -94,7 +129,7 @@ static func preview_covers(preview: Dictionary, tile: Vector2i) -> bool:
 ## The whole loop for one endpoint: spur, then a station that serves it.
 static func serve(session: GameSession, tile: Vector2i, label: String = "",
 		require_served: bool = true) -> int:
-	var spur := lay_spur(session, Vector2i(tile.x, tile.y - 3))
+	var spur := lay_spur(session, Vector2i(tile.x, tile.y - 2))
 	if not bool(spur["ok"]):
 		push_warning("spur refused at %s: %s" % [tile, spur["reason"]])
 	return station_for_tile(session, tile, label, require_served)

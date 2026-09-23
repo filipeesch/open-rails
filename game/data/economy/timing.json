@@ -1,8 +1,9 @@
 {
   "id": "timing",
   "comment": "One place mapping real time to simulation time. Changing ticks_per_day changes pacing only; per-tick behaviour is unaffected.",
+  "pace_comment": "ticks_per_day is set against the ground the trains actually cover. A tile is WorldConstants.TILE_METRES across, the shipped mine-to-works route is some 170 of them, and a loaded 4-4-0 covers one at the speed it is rated at: a leg measures 80 to 100 seconds of play at 1x and the first paid delivery nearer four. At 12 ticks a day a calendar month came round every 18 of those seconds, so a pit filled its platform to the ceiling and wasted everything above it long before one consist could clear a single load. 60 puts a month at 90 seconds, a little over one leg, which is the pace the industry output rates and the platform storages were sized for. Per-day quantities do not move with it: rates are divided by this number.",
   "tick_rate_hz": 20.0,
-  "ticks_per_day": 12,
+  "ticks_per_day": 60,
   "speeds": [
     0.0,
     1.0,
@@ -14,8 +15,9 @@
   "train": {
     "min_dwell_ticks": 6,
     "dwell_ticks_per_unit": 1.2,
-    "acceleration_per_tick": 0.06,
-    "braking_per_tick": 0.12,
+    "train_comment": "acceleration and braking are changes of tiles-per-tick per tick, so they belong to the same scale as the speed they reach: 0.35 m/s^2 and 0.90 m/s^2 through WorldConstants.TILE_METRES at SimulationClock.TICK_RATE. Figures tuned for a faster-drawn consist brake a train to a dead stop on a gradient instead of slowing it.",
+    "acceleration_per_tick": 0.0011,
+    "braking_per_tick": 0.0028,
     "grade_speed_factor_per_step": 0.72,
     "max_dwell_ticks": 120
   }

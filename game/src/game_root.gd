@@ -2,6 +2,10 @@ extends Node3D
 
 ## Root of a running game.  Owns the presentation layer and hands it the
 ## composition root; it holds no simulation state of its own.
+##
+## The order in `_ready` is the order the layers need: the valley first, then the
+## things that project it, then the things that read the projection.  Audio comes
+## last because it listens to everything above it.
 
 @onready var _session: Node = $GameSession
 
@@ -13,12 +17,20 @@ var selection: SelectionService
 var effects: EffectLayer
 var debug_overlay: DebugOverlay
 var hud: Hud
+var input: InputController
 var tool_panel: ToolPanel
+var company_panel: CompanyPanel
 var context_inspector: ContextInspector
 var notifications: NotificationCenter
 var command_palette: CommandPalette
+var map_labels: MapLabels
+var hover_tooltip: HoverTooltip
+var cursor_state: CursorState
+var ghost_readout: GhostReadout
+var station_ghost: StationGhost
 var settings: SettingsService
 var settings_panel: SettingsPanel
+var audio: AudioService
 
 
 func _ready() -> void:
@@ -48,6 +60,10 @@ func _build_presentation() -> void:
 	terrain_renderer = TerrainRenderer.new()
 	$World3D/Terrain.add_child(terrain_renderer)
 	terrain_renderer.attach(world)
+	# The water asks where the player is looking so it can leave a lake alone when
+	# it is offscreen.  A lambda rather than a stored reference keeps the renderer
+	# reading a live value: the camera moves, the renderer never has to be told.
+	terrain_renderer.view_source = func() -> Vector3: return camera_rig.target
 
 	rail_renderer = RailRenderer.new()
 	$World3D/Rail.add_child(rail_renderer)
@@ -55,7 +71,7 @@ func _build_presentation() -> void:
 
 	entity_renderer = EntityRenderer.new()
 	$World3D/Buildings.add_child(entity_renderer)
-	entity_renderer.attach(_session)
+	entity_renderer.attach(_session, camera_rig)
 
 	effects = EffectLayer.new()
 	$World3D/Effects.add_child(effects)
@@ -68,23 +84,32 @@ func _build_presentation() -> void:
 
 
 func _build_interface() -> void:
-	var input := InputController.new()
+	input = InputController.new()
 	input.name = "Input"
 	add_child(input)
 	input.attach(_session, camera_rig, selection)
 	input.attach_settings(settings)
 
 	hud = Hud.new()
+	_fills_band(hud)
 	$UI/TopBar.add_child(hud)
 	hud.attach(_session)
 
 	var toolbar := BottomToolbar.new()
+	_fills_band(toolbar)
 	$UI/BottomToolbar.add_child(toolbar)
 	toolbar.attach(_session, input)
 
 	tool_panel = ToolPanel.new()
 	$UI/ToolPanel.add_child(tool_panel)
 	tool_panel.attach(_session, input)
+
+	# The books live in the same left band as the tool drawer, and each of them
+	# stands down when the other is called for: one drawer per band.
+	company_panel = CompanyPanel.new()
+	company_panel.name = "Company"
+	$UI/ToolPanel.add_child(company_panel)
+	company_panel.attach(_session, input)
 
 	context_inspector = ContextInspector.new()
 	$UI/ContextInspector.add_child(context_inspector)
@@ -93,6 +118,43 @@ func _build_interface() -> void:
 	notifications = NotificationCenter.new()
 	$UI/Notifications.add_child(notifications)
 	notifications.attach(_session)
+
+	map_labels = MapLabels.new()
+	map_labels.name = "MapLabels"
+	$UI/MapLabels.add_child(map_labels)
+	map_labels.attach(_session, camera_rig)
+	map_labels.attach_selection(selection)
+
+	# The pointer is part of the build mode, not a decoration on top of it: the
+	# cursor itself carries whether the next click will lay track or refuse it, and
+	# the figures beside it are the same preview the click will act on.  Both read
+	# the controller's state; neither is allowed an opinion of its own.
+	cursor_state = CursorState.new()
+	add_child(cursor_state)
+	cursor_state.attach(input)
+
+	# Laid track previews in the world, in the domain's own colour for it — the
+	# same three words the readout beside the cursor uses.
+	rail_renderer.attach_build_controller(input)
+
+	# The station ghost belongs to the world, not to the panel: what is being
+	# bought is a stretch of valley.  It draws the domain's preview and nothing of
+	# its own, so the yard, the reach and the marks on the towns are the same
+	# answer the click will be charged for.
+	station_ghost = StationGhost.new()
+	station_ghost.name = "StationGhost"
+	$World3D/Buildings.add_child(station_ghost)
+	station_ghost.attach(_session, input)
+
+	ghost_readout = GhostReadout.new()
+	ghost_readout.name = "GhostReadout"
+	$UI.add_child(ghost_readout)
+	ghost_readout.attach(_session, input)
+
+	hover_tooltip = HoverTooltip.new()
+	hover_tooltip.name = "HoverTooltip"
+	$UI/Tooltips.add_child(hover_tooltip)
+	hover_tooltip.attach(_session, selection)
 
 	command_palette = CommandPalette.new()
 	$UI/ModalLayer.add_child(command_palette)
@@ -109,6 +171,39 @@ func _build_interface() -> void:
 	settings_panel.add_to_group("ui_settings_panel")
 	settings_panel.attach(settings)
 
+	_build_audio(toolbar)
+
+
+## Stretch a code-built widget across the whole of the band it is about to be
+## added to.  A `Control` created in code arrives with top-left anchors and zero
+## size, which a band of permanent chrome cannot use: the panel would collapse to
+## its minimum size in the corner, and the bar would be as wide as its text rather
+## than as wide as the valley.  The band itself is authored in `Game.tscn`.
+func _fills_band(control: Control) -> void:
+	control.set_anchors_preset(Control.PRESET_FULL_RECT)
+	control.offset_left = 0.0
+	control.offset_top = 0.0
+	control.offset_right = 0.0
+	control.offset_bottom = 0.0
+
+
+## The valley's six sounds.  Audio is built last and listens: it is the only
+## layer here that is caused by the others rather than causing them.  The ear is
+## pulled from the camera rig rather than pushed, so a rig that never moves costs
+## nothing and a rig that moves is heard moving.
+func _build_audio(toolbar: BottomToolbar) -> void:
+	audio = AudioService.new()
+	audio.name = "Audio"
+	add_child(audio)
+	audio.configure(settings)
+	audio.attach_session(_session)
+	audio.ear_provider = func() -> Vector3: return camera_rig.target
+	audio.start_ambience()
+	toolbar.tool_requested.connect(func(_tool: String) -> void: audio.ui_click())
+	toolbar.panel_requested.connect(func(_panel: String) -> void: audio.ui_click())
+	command_palette.command_invoked.connect(func(_id: String) -> void: audio.ui_click())
+	settings_panel.saved.connect(func(_path: String) -> void: audio.ui_click())
+
 
 func _process(delta: float) -> void:
 	_session.advance(delta)
@@ -122,3 +217,10 @@ func _process(delta: float) -> void:
 		entity_renderer.tick()
 	if effects != null:
 		effects.tick()
+	if map_labels != null:
+		# Dirty-gated: a still camera over a still valley scans nothing.
+		map_labels.refresh()
+	if company_panel != null:
+		company_panel.refresh()
+	if audio != null:
+		audio.assign_locomotive_voices()

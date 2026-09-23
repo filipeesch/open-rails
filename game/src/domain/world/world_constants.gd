@@ -6,6 +6,7 @@ extends RefCounted
 
 # --- world scale ---
 const TILE_SIZE := 1.0
+const TILE_METRES := 16.0
 const HEIGHT_STEP := 0.25
 const CHUNK_SIZE := 32
 const MAP_WIDTH := 256

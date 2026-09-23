@@ -59,6 +59,17 @@ rendering strategy (`runtime-rendering`), test authoring detail (`testing`).
   vendored dependencies (tests are an in-repo ~200-line runner).
 - Project setting changes (input, display, rendering) land with a note in the
   PR referencing the spec section they implement.
+- `project.godot` is a **ConfigFile, not an INI**: comments start with `;`.
+  A `#` line is a parse error, and the parser swallows the line *after* the
+  comment run — so the setting below your comment quietly disappears from the
+  project while the file still reads perfectly. `run/main_scene` vanished this
+  way and the game could not be launched by its own guide;
+  `tests/test_project_smoke.gd::test_the_game_starts_without_being_told_which_scene`
+  now guards both the comment character and the fact that the shipped command
+  (`rr.py game run`, no scene argument) has something to boot.
+- Keys and keybindings are read from the engine, not from the docs: query
+  `InputMap.action_get_events(action)` (plus `OS.get_keycode_string`) when
+  writing a key list, and assert a hint's key exists before advertising it.
 
 ## Validation
 `python tools/rr.py check` runs a full headless import and fails on any
@@ -66,6 +77,8 @@ rendering strategy (`runtime-rendering`), test authoring detail (`testing`).
 the domain side without a window. Both green before merge.
 
 ## Common mistakes
+- Writing a `#` comment in `project.godot` (it is not a comment there, and the
+  next line is lost with it — see Implementation rules).
 - Making a gameplay Autoload "for convenience" (breaks isolated test
   sessions).
 - Switching the renderer to Forward+ to get one effect (spec forbids the

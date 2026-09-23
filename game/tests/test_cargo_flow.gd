@@ -214,7 +214,8 @@ func test_perishable_cargo_arrives_worth_less_the_longer_it_takes() -> void:
 
 
 func test_the_cargo_ledger_and_the_money_ledger_tell_the_same_story() -> void:
-	session.clock.step_ticks(2500)
+	TestSession.run_until(session, func() -> bool: return session.cargo.delivery_count() > 0,
+			TestSession.DELIVERY_TICKS)
 	check_gt(session.cargo.delivery_count(), 0, "the train made deliveries")
 	var booked := 0.0
 	for transaction in session.economy.unreversed_ledger():
@@ -293,9 +294,28 @@ func test_the_allocator_never_creates_or_destroys_a_ton() -> void:
 		"every ton dug is still in the valley — %.1f in against %.1f out" % [
 			dug_before + produced, dug_after], 0.001)
 
+	## Town cargo is generated on the calendar, so the tonnage a platform should
+	## hold is exact only at a fixed distance from the first month.  Read it here,
+	## at exactly three months of running, before the wait below lets the clock run
+	## on to whatever tick a loaded leg across the valley finishes at.
+	var passengers := 0.0
+	var mail := 0.0
+	for station_id in session.stations.stations():
+		passengers += session.stations.inventory_of(station_id, "passengers")
+		mail += session.stations.inventory_of(station_id, "mail")
+	var town_pax: float = session.towns.generation_map(marlow).get("passengers", 0.0)
+	var town_mail: float = session.towns.generation_map(marlow).get("mail", 0.0)
+
 	## Where the ton ended up, in the aggregate: a works that was paid for a
 	## delivery owns the coal it took.  V1 burns nothing, so a delivery is a
 	## transfer into the works' yard and no coal simply leaves the world.
+	##
+	## This wait is only so the claim about where a ton ended up is about a ton that
+	## actually moved; at the pace the models imply a loaded leg across the valley
+	## is longer than a month of the calendar.
+	TestSession.run_until(session,
+			func() -> bool: return float(session.cargo.delivered_by_cargo().get("coal", 0.0)) > 0.0,
+			TestSession.DELIVERY_TICKS)
 	var taken := float(session.cargo.delivered_by_cargo().get("coal", 0.0))
 	var at_works := 0.0
 	for industry_id in session.industries.industries():
@@ -306,13 +326,6 @@ func test_the_allocator_never_creates_or_destroys_a_ton() -> void:
 		"the works holds every ton it took (%.1f in its yard against %.1f delivered)" % [
 			at_works, taken])
 
-	var passengers := 0.0
-	var mail := 0.0
-	for station_id in session.stations.stations():
-		passengers += session.stations.inventory_of(station_id, "passengers")
-		mail += session.stations.inventory_of(station_id, "mail")
-	var town_pax: float = session.towns.generation_map(marlow).get("passengers", 0.0)
-	var town_mail: float = session.towns.generation_map(marlow).get("mail", 0.0)
 	check_near(passengers, town_pax * 3.0,
 		"Marlow's three months of passengers all lie on its two platforms, shared but not lost",
 		0.001)

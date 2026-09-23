@@ -10,8 +10,18 @@
 
 ## 2. Map loading
 
-- [ ] 2.1 Implement a run-length encoded map loader reading heights, terrain types and feature lists from JSON, and verify a decoded 256 × 256 layer matches the authored source
-- [ ] 2.2 Generate a deterministic 256 × 256 test map with water, forest, hill and plain tiles and verify all four terrain kinds are present
+- [x] 2.1 Implement a run-length encoded map loader reading heights, terrain types and feature lists from JSON, and verify a decoded 256 × 256 layer matches the authored source
+  `MapDocument` decodes heights, the terrain word layer and `MapFeatures`; it now also
+  exposes `load_dictionary`, which the file loader delegates to, so a generated or edited
+  map is proved through the shipped decoder (`tests/test_map_kinds.gd` compares a decoded
+  256 × 256 layer against the authored rule, tile by tile; `tests/test_scenery_world.gd`
+  covers the feature list, and the shipped valley is re-decoded as a regression case).
+- [x] 2.2 Generate a deterministic 256 × 256 test map with water, forest, hill and plain tiles and verify all four terrain kinds are present
+  `tests/test_map_kinds.gd` authors it from a rule — a river, a lake, an escarpment, two
+  woods — encoded run-length like real content. All four kinds are present, hills stand
+  above the water line, and the same seed reproduces the layer byte for byte while a
+  different seed moves the water. Founder's Valley itself contains no hill tiles, which is
+  why the generated map, not the authored one, carries this check.
 - [x] 2.3 Implement a water-validity query reporting a water-specific rejection reason, and verify rail placement on water is refused with that reason
 
 ## 3. Terrain rendering
@@ -19,8 +29,17 @@
 - [x] 3.1 Implement chunked terrain mesh generation producing one vertex-coloured mesh per 32 × 32 chunk and verify a 256 × 256 world creates exactly 64 chunk nodes
 - [x] 3.2 Add a one-tile neighbour skirt to chunk generation and verify no visible seam appears at chunk borders on a sloped map
 - [x] 3.3 Implement dirty-chunk rebuild driven by world change notifications and verify a counter shows exactly one rebuilt chunk for an interior edit and up to four for a border edit
-- [ ] 3.4 Render water as a single cheap animated surface per water body with no simulation, and verify simulation work is unchanged when water is offscreen
-- [ ] 3.5 Instance scenery per chunk with `MultiMeshInstance3D` from map feature data and verify the scene node count is independent of instance count
+- [x] 3.4 Render water as a single cheap animated surface per water body with no simulation, and verify simulation work is unchanged when water is offscreen
+  A flood fill groups water cells; each group is one `MeshInstance3D` with one mesh,
+  built in space local to its own centre so the animation is a single `position.y` write
+  per body per frame (`WATER_BOB_AMPLITUDE` 0.045, no accumulated state, no physics body).
+  Bodies beyond `WATER_NEAR_TILES` from the camera are skipped outright —
+  `water_animated_last_tick()` reports zero writes — and both the hidden and the idle case
+  are proved to leave terrain, heights, rail, occupancy, ticks and cash identical.
+- [x] 3.5 Instance scenery per chunk with `MultiMeshInstance3D` from map feature data and verify the scene node count is independent of instance count
+  `TerrainRenderer._rebuild_scenery` keeps one `MultiMeshInstance3D` per chunk per scenery
+  asset and rewrites only the instance buffer; `tests/test_scenery_instances.gd` puts one
+  tree in each of 16 chunks, then fills ~10,000 cells, and the node count does not move.
 - [x] 3.6 Expose terrain elevation sampling at a world position and verify a placement ghost follows elevation across a hill
 
 ## 4. Isometric camera

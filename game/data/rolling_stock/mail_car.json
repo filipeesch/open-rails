@@ -7,5 +7,6 @@
   "running_cost_month": 160.0,
   "cargo": "mail",
   "capacity": 35,
-  "weight_tons": 11.0
+  "weight_tons": 11.0,
+  "length_tiles": 0.74
 }

@@ -88,17 +88,57 @@ func preview_station(definition_id: String, anchor: Vector2i) -> Dictionary:
 	var def := _stations.station_def(definition_id)
 	var cost := station_cost(definition_id)
 	if reason != "":
-		return {"ok": false, "reason": reason, "cost": cost, "footprint": [] as Array[Vector2i]}
-	if not _economy.can_afford(cost):
+		# The yard's shape is knowable wherever the pointer stands, and a red ghost
+		# has to be drawn somewhere — so the footprint is offered even here.  What
+		# is withheld is the promise: no catchment, no covered places, no monthly
+		# yield, because ground that cannot hold a station serves nothing.
 		return {
-			"ok": false, "reason": "Not enough cash for a station", "cost": cost,
+			"ok": false, "reason": reason, "cost": cost, "state": "invalid",
 			"footprint": WorldCoords.tiles_in_span(anchor, def.footprint),
+			"catchment": [] as Array[Vector2i], "catchment_radius": 0.0,
+			"sources": [] as Array[Dictionary], "monthly": {},
 		}
-	return {
-		"ok": true, "reason": "", "cost": cost,
+	var sources := _prospective_sources(definition_id, anchor)
+	var affordable := _economy.can_afford(cost)
+	var offer := {
+		"reason": reason, "cost": cost,
+		"ok": affordable,
+		# Which kind of "no" this is.  Ground the domain would accept but the
+		# treasury cannot cover is a different problem from standing in a river, and
+		# the ghost colours them differently; the word is decided here so the
+		# readout beside the cursor and the band on the terrain agree on it.
+		"state": "ok" if affordable else "expensive",
 		"footprint": WorldCoords.tiles_in_span(anchor, def.footprint),
-		"sources": _prospective_sources(definition_id, anchor),
+		# The ring the player is really buying is the reach, not the 3x2 yard, so
+		# the preview carries the tiles the station would drain from and what they
+		# would yield — the figures the first month's invoice will be checked
+		# against.  They come from the same services `build_station` uses, so a
+		# ghost cannot promise a town it would not in fact cover.
+		"catchment": _stations.catchment_tiles_for(definition_id, anchor),
+		"catchment_radius": def.catchment_tiles,
+		"sources": sources,
+		"monthly": _monthly_expectation(sources),
 	}
+	if not offer["ok"]:
+		offer["reason"] = "Not enough cash for a station"
+	return offer
+
+
+## What the station would gather in a month standing here, per cargo.  The
+## `rate` numbers are the industry's and town's own monthly output, so the
+## ghost's promise is the simulation's arithmetic rather than a second guess at
+## it.  Only the `load` side is counted: a sink is something the station will
+## deliver to, not something it earns from.
+func _monthly_expectation(sources: Array[Dictionary]) -> Dictionary:
+	var monthly := {}
+	for entry in sources:
+		if String(entry.get("role", "")) != "load":
+			continue
+		var cargo_id := String(entry.get("cargo", ""))
+		if cargo_id == "":
+			continue
+		monthly[cargo_id] = float(monthly.get(cargo_id, 0.0)) + float(entry.get("rate", 0.0))
+	return monthly
 
 
 func station_cost(definition_id: String) -> float:

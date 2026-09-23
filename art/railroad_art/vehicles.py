@@ -119,7 +119,7 @@ def _wheel_pair(ctx, tag, x, radius, width, phase_deg, colour, tyre_colour,
                     location=(x, sign * y_in, RIDE_HEIGHT_TILES + radius),
                     colour=colour, tyre_colour=tyre_colour, spokes=5,
                     phase_deg=phase_deg if side == "left" else -phase_deg)
-        ctx.register_wheel(w, tag, phase_deg, side)
+        ctx.register_wheel(w, tag, phase_deg, side, radius=radius)
         wheels[side] = w
     return wheels
 

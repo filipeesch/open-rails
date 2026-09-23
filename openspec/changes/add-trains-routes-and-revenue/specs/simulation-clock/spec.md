@@ -40,6 +40,17 @@ The simulation SHALL maintain a day, month and year calendar starting in January
 - **WHEN** enough ticks accumulate to complete 1850
 - **THEN** the date becomes January 1851
 
+### Requirement: Calendar pace is set against the rails
+The ticks-per-day ratio SHALL be a single configuration value, and the shipped value SHALL be chosen so a calendar month lasts longer than one loaded leg takes to run at 1x. Player-facing acceleration SHALL come from the speed dial consuming more ticks per second, not from a change to per-tick behaviour.
+
+#### Scenario: A producer can be cleared before it fills
+- **WHEN** an industry runs at its rated monthly output with one consist serving it on a typical route
+- **THEN** its station inventory does not remain pinned at its storage ceiling while wagons stand loaded
+
+#### Scenario: The clock runs at the pace the data names
+- **WHEN** the session configures its clock
+- **THEN** ticks per day equals the configured value, and a month is a whole number of days
+
 ### Requirement: Month boundary event
 The clock SHALL emit a `month_changed` event exactly once per calendar month, and production, allocation, accounting and recurring charges SHALL be driven by that event rather than by polling the date.
 

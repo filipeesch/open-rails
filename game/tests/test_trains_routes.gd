@@ -271,7 +271,11 @@ func test_a_timetabled_train_leaves_the_platform_and_runs() -> void:
 
 func test_a_train_completes_laps_and_returns_to_where_it_started() -> void:
 	var train := coal_train()
-	session.clock.step_ticks(4000)
+	# The promise of the case is a lap that earned something, so the wait is for
+	# both halves of it.  A consist that returns to its first stop having lifted
+	# nothing counts as a trip and earns nothing — which is what happens on the
+	# very first departure, before the month's output has reached the platform.
+	TestSession.run_until(session, _lap_that_paid(train), 4 * TestSession.DELIVERY_TICKS)
 
 	check_neq(session.trains.route_of(train), 0, "still on its timetable")
 	check_gt(session.trains.total_revenue(train), 0.0, "the lap earned something")
@@ -307,8 +311,9 @@ func test_a_platform_run_takes_every_ton_the_platform_offers() -> void:
 			var left_behind := session.stations.inventory_of(mine_station, "coal")
 			best_loaded = maxf(best_loaded, loaded)
 			check_le(loaded, capacity, "a consist never leaves with more than its wagons hold")
-			check_eq(left_behind, 0.0,
-					"and it never leaves coal sitting on a platform it has room for (loaded %.1f)" % loaded)
+			check_true(loaded >= capacity - 0.001 or left_behind <= 0.001,
+					"a consist either fills its wagons or clears the platform, never " \
+					+ "both left wanting (loaded %.1f, %.1f behind)" % [loaded, left_behind])
 	check_gt(float(best_loaded), 0.0, "coal got aboard somewhere along the run")
 	check_gt(float(mine_departures), 0.0, "the train actually ran out of the colliery")
 	check_gt(float(best_loaded), 45.0 * 0.4, "and hauled a meaningful load, not a token handful")
@@ -483,6 +488,7 @@ func test_filing_the_same_stops_in_the_other_order_turns_the_train_round() -> vo
 	check_eq(stops.size(), 2, "the line was built with two stops")
 	var path_before := session.routes.path_of(route_id)
 	check_gt(float(path_before.size()), 1.0, "and it has a path to run")
+	var rail_before := session.routes.length_tiles(route_id)
 
 	var reversed: Array[Dictionary] = []
 	for index in range(stops.size() - 1, -1, -1):
@@ -493,17 +499,22 @@ func test_filing_the_same_stops_in_the_other_order_turns_the_train_round() -> vo
 	check_neq(edited, 0, "the edited route exists")
 	check_true(session.routes.is_valid(edited), "and it is valid on the day it was filed")
 	var path_after := session.routes.path_of(edited)
-	check_near(float(path_after.size()), float(path_before.size()),
-		"the recomputed path runs over the same length of rail")
+	check_near(session.routes.length_tiles(edited), rail_before,
+		"the recomputed path runs over the same length of rail", 0.001)
 	# A route is a closed loop, so the path always begins at the stop filed first:
 	# the anchor moving to the other end of the valley is what proves the running
-	# was rewritten, rather than the old path being handed back unchanged.
-	var pit_access := Vector2(session.stations.rail_access_tile(mine_station))
-	var works_access := Vector2(session.stations.rail_access_tile(plant_station))
-	check_near(Vector2(path_before[0]).distance_to(pit_access), 0.0,
-		"the old path began at the pit, the stop filed first", 0.001)
-	check_near(Vector2(path_after[0]).distance_to(works_access), 0.0,
-		"the new path begins at the works: the path was recomputed, not reused", 0.001)
+	# was rewritten, rather than the old path being handed back unchanged.  It
+	# begins at the halt, which is where the train stands — the yard's own cell,
+	# with the pull-up that leaves the middle of the consist on it.
+	var reach := session.trains.consist_length(train) * 0.5
+	var pit := WorldCoords.tile_to_world_xz(session.stations.berth_tile(mine_station))
+	var works := WorldCoords.tile_to_world_xz(session.stations.berth_tile(plant_station))
+	check_le(Vector2(path_before[0]).distance_to(pit), reach + 0.001,
+		"the old path began at the pit, the stop filed first")
+	check_le(Vector2(path_after[0]).distance_to(works), reach + 0.001,
+		"the new path begins at the works: the path was recomputed, not reused")
+	check_gt(Vector2(path_after[0]).distance_to(works), 0.0,
+		"and it begins at the halt rather than the marker the yard couples at")
 	var same_ground := 0
 	for point in path_after:
 		for other in path_before:
@@ -641,8 +652,15 @@ func test_two_trains_running_at_each_other_pass_and_neither_notices() -> void:
 	var sign := 1 if previous > 0.0 else -1
 	var interchanges := 0
 	var strands := 0
-	for tick in 2400:
+	# Two interchanges and a paid delivery is the promise, so the watch runs until
+	# both are in the book rather than to a tick count that predated the world's
+	# scale — with a guard, so a genuine jam fails the case instead of hanging it.
+	var guard := 0
+	while guard < 2 * TestSession.DELIVERY_TICKS \
+			and (interchanges < 2
+					or session.trains.total_revenue(first) + session.trains.total_revenue(second) <= 0.0):
 		session.clock.step_ticks(1)
+		guard += 1
 		var now := _along(session.trains.position_tiles(first), origin, direction) \
 				- _along(session.trains.position_tiles(second), origin, direction)
 		if now != 0.0:
@@ -655,12 +673,23 @@ func test_two_trains_running_at_each_other_pass_and_neither_notices() -> void:
 
 	check_gt(float(interchanges), 1.0, "the two consists interchange on the single line")
 	check_eq(strands, 0, "and neither one is ever left stranded by the other")
-	check_eq(session.trains.state_label(first), "Moving", "one is still running at the end")
+	check_true(session.trains.state_label(first) in ["Moving", "Loading"],
+			"one is still working at the end, not stranded on the line")
 	check_neq(session.trains.state_label(second), "No path", "so is the other")
 	check_true(session.routes.is_valid(session.trains.route_of(first)), "both timetables are still valid")
 	check_true(session.routes.is_valid(session.trains.route_of(second)), "including the reversed one")
 	check_gt(session.trains.total_revenue(first) + session.trains.total_revenue(second), 0.0,
 			"and the valley paid them both for the coal they moved")
+
+
+## Waiting for a lap is not waiting for a delivery.  A consist filed at a colliery
+## starts its life standing on the platform with nothing on it to lift, so its
+## first arrival is a trip that earns nothing; only the second one proves the
+## train moved cargo and was paid for it.
+func _lap_that_paid(train_id: int) -> Callable:
+	return func() -> bool:
+		return int(session.trains.train(train_id).get("trip_count", 0)) > 0 \
+				and session.trains.total_revenue(train_id) > 0.0
 
 
 func _along(point: Vector2, origin: Vector2, direction: Vector2) -> float:
@@ -675,7 +704,7 @@ func _line_ahead_of(train_id: int, path: PackedVector2Array) -> Array[Vector2i]:
 	var at := _nearest_index(path, session.trains.position_tiles(train_id))
 	var tiles: Array[Vector2i] = []
 	for index in range(mini(at + 4, path.size() - 1), mini(at + 26, path.size())):
-		var tile := Vector2i(roundi(path[index].x), roundi(path[index].y))
+		var tile := WorldCoords.world_to_tile_floor(path[index])
 		if not tiles.has(tile):
 			tiles.append(tile)
 	return tiles
@@ -726,12 +755,15 @@ func _cross_loaded(train_id: int, region: Array[Vector2i]) -> Dictionary:
 	var lowest_factor := 1.0
 	var highest_factor := 1.0
 	var inside := false
-	for tick in 4000:
+	# The budget has to cover a whole lap and then some: after the region is
+	# re-shaped the consist has to come back round to cross it again, and a lap of
+	# this line outlasts the calendar month it is quoted in.
+	for tick in 2 * TestSession.DELIVERY_TICKS:
 		session.clock.step_ticks(1)
 		if session.trains.state_label(train_id) != "Moving":
 			continue
 		var point := session.trains.position_tiles(train_id)
-		var here := Vector2i(roundi(point.x), roundi(point.y))
+		var here := WorldCoords.world_to_tile_floor(point)
 		if not region.has(here):
 			if inside:
 				break

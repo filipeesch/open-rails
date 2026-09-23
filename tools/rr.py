@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -57,13 +58,6 @@ def cmd_test(args: argparse.Namespace) -> int:
     return _report_script_errors(result, "test")
 
 
-def cmd_stress(args: argparse.Namespace) -> int:
-    godot = toolchain.find_godot(args.godot)
-    argv = ["--headless", "--path", str(GAME_DIR), "--script", "res://tests/stress_world.gd", "--", f"--ticks={args.ticks}"]
-    result = toolchain.run(godot, argv, cwd=GAME_DIR, stream=True)
-    return _report_script_errors(result, "stress")
-
-
 def _report_script_errors(result: toolchain.CommandResult, label: str) -> int:
     """Fail a run the engine raised script errors in, whatever it printed.
 
@@ -89,6 +83,55 @@ def _report_script_errors(result: toolchain.CommandResult, label: str) -> int:
     return result.code
 
 
+# The rail height is fixed twice, in two languages: the renderer draws the rail
+# head at `RIDE_HEIGHT` and the art compiler rests every compiled wheel at
+# `RIDE_HEIGHT_TILES`.  No test reads both numbers — the simulation only ever
+# consults the constant in its own module — so a drift between them is exactly
+# the invisible "train floats over the rail" bug.  `rr.py check` is the pin.
+# The values are read with a regex, never imported: conventions.py is Blender-
+# only code and `check` stays stdlib-only.
+_RIDE_HEIGHT_SOURCES = (
+    (
+        Path("game") / "src" / "presentation" / "track_pieces.gd",
+        "RIDE_HEIGHT",
+        r"^const\s+RIDE_HEIGHT\s*(?::[^=\n]*)?=\s*([-+0-9.eE]+)",
+    ),
+    (
+        Path("art") / "railroad_art" / "conventions.py",
+        "RIDE_HEIGHT_TILES",
+        r"^RIDE_HEIGHT_TILES\s*(?::[^=\n]*)?=\s*([-+0-9.eE]+)",
+    ),
+)
+
+
+def _check_rail_ride_height() -> str | None:
+    """Return a failure line when the two rail-height authorities disagree."""
+    found: list[tuple[str, str]] = []
+    for rel, name, pattern in _RIDE_HEIGHT_SOURCES:
+        try:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        match = re.search(pattern, text, re.MULTILINE)
+        if match is None:
+            return (
+                f"{rel} no longer declares {name}; `rr.py check` pins the two "
+                "rail-height constants together and cannot read that side"
+            )
+        found.append((str(rel), match.group(1)))
+    (gd_rel, gd_raw), (py_rel, py_raw) = found
+    gd_val, py_val = float(gd_raw), float(py_raw)
+    if gd_val == py_val:
+        print(f"check: rail ride height agrees: RIDE_HEIGHT == RIDE_HEIGHT_TILES == {gd_raw}")
+        return None
+    bigger = f"{gd_rel} RIDE_HEIGHT" if gd_val > py_val else f"{py_rel} RIDE_HEIGHT_TILES"
+    return (
+        f"rail ride height mismatch: {gd_rel} RIDE_HEIGHT = {gd_raw} but "
+        f"{py_rel} RIDE_HEIGHT_TILES = {py_raw}; {bigger} is the higher value — "
+        "compiled wheels would rest above or below the drawn rail head"
+    )
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Import every runtime script and verify shared conventions."""
     godot = toolchain.find_godot(args.godot)
@@ -97,6 +140,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     drift = worldgen_constants.check(REPO_ROOT)
     if drift != 0:
         failures.append("world constants drifted from art/config/world.toml")
+
+    ride = _check_rail_ride_height()
+    if ride is not None:
+        failures.append(ride)
 
     rc = toolchain.run(godot, ["--headless", "--path", str(GAME_DIR), "--import"], cwd=GAME_DIR, capture=True)
     if rc.code != 0:

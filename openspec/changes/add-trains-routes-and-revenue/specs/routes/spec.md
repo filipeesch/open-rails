@@ -52,3 +52,18 @@ Each stop SHALL specify which cargo it loads and which it unloads, and only carg
 #### Scenario: Loading a cargo the stop lacks is shown as unavailable
 - **WHEN** a stop has no coal available
 - **THEN** configuring that stop to load coal reports that no coal is available rather than silently loading nothing
+
+### Requirement: A leg is measured between the places trains stand
+Each leg of a route SHALL be measured between the cells the trains stand on at its two yards — their berths — and not between the cells the yards couple to, which are different cells wherever a yard's frontage is longer than the straight stretch beside it. Halts SHALL be pulled up the line by half the flying train's length, bounded by the rail running ahead of the engine, so the middle of the train arrives on the yard.
+
+#### Scenario: A leg does not stop its train a platform short
+- **WHEN** a route's first stop is a yard whose coupling cell lies at one end of its frontage
+- **THEN** the path runs to the berth beside the middle of that ground rather than stopping at the coupling cell
+
+#### Scenario: Only a turnaround is pulled up
+- **WHEN** a stop is one the line carries straight through rather than turns round at
+- **THEN** its halt stays on the marker the two legs meet at, since a train cannot be stopped on a point it runs over
+
+#### Scenario: A restored route is measured with its train
+- **WHEN** a save is loaded, whose routes are rebuilt before the trains that fly them
+- **THEN** every route's halts are measured again once the consists are known, and a restored train stands exactly where it stood when it was saved

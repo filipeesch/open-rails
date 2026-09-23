@@ -71,9 +71,16 @@ func write_json(path: String, data: Dictionary) -> bool:
 	return true
 
 
-## Run the simulation for `count` calendar months.  Returns false if the cap was
-## hit first, which in a test means the clock is not rolling over.
-func run_months(clock: SimulationClock, count: int, cap: int = 4000) -> bool:
+## Run the simulation for `count` calendar months.  Returns false if the budget
+## was hit first, which in a test means the clock is not rolling over.  The
+## budget is read off the clock, not remembered here: a month is thirty days of
+## `ticks_per_day`, and that is tuning the game is free to change.  A remembered
+## number stops the calendar quietly part-way through the month it was watching
+## for, and every case below it then measures a world that never reached the date
+## its own name promises.
+func run_months(clock: SimulationClock, count: int, cap: int = 0) -> bool:
+	if cap <= 0:
+		cap = (count + 1) * clock.ticks_per_day * 30
 	var started := months_observed
 	var ticks := 0
 	while months_observed < started + count and ticks < cap:

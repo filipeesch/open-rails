@@ -25,7 +25,7 @@ the decisions this guide summarises.
 AGENTS.md            this guide
 .agents/             agent knowledge base (references / skills / workflows)
 docs/requirements/   v1.md — the specification
-game/                Godot 4 project (main scene scenes/Game.tscn)
+game/                Godot 4 project (boots scenes/MainMenu.tscn, which hands off to scenes/Game.tscn)
   src/domain/        simulation: world, rail, stations, trains, economy…
   src/presentation/  renderers, camera, effects — reads state, never owns it
   src/ui/            HUD, inspectors, tools
@@ -74,9 +74,7 @@ flag → `RR_GODOT` / `RR_BLENDER` environment variables → `~/.rr/toolchain.js
 (`{"godot": "...", "blender": "..."}`) → conventional install paths
 (`godot`, `godot4` on PATH, `/Applications/Godot.app/…`, `blender`,
 `/Applications/Blender.app/…`). A missing toolchain fails with the searched
-paths listed and a download hint for Godot 4.7.2-stable. (Note: the
-`add-project-foundation` design doc mentions a repo-local pin file; the
-shipped code reads `~/.rr/toolchain.json` — trust the code.)
+paths listed and a download hint for Godot 4.7.2-stable.
 
 The Godot binary is not installed by default; export `RR_GODOT` before
 `game run` / `test` / `check` / `stress`.

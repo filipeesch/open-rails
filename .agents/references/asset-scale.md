@@ -12,6 +12,7 @@ on the art side.
 | Key | Value |
 |---|---|
 | `tile_size` (TILE_SIZE) | 1.0 |
+| `metres_per_tile` (TILE_METRES) | 16.0 |
 | `height_step` (HEIGHT_STEP) | 0.25 |
 | `default_chunk` | 32 (→ 32×32 tiles, 64 chunks on a 256×256 map) |
 | `map_width` / `map_height` | 256 × 256 |
@@ -21,6 +22,27 @@ on the art side.
 
 Coordinate convention (per `add-world-and-camera` design): tile centre is at
 `(x + 0.5) * TILE_SIZE`; world elevation is `height * HEIGHT_STEP`.
+
+## What a tile is worth in the world
+
+TILE_SIZE is a game unit and carries no metres of its own. The moment something
+in the game *claims* a speed — the inspector's "54 km/h" — a tile has to be worth
+a number of metres, or that figure is a decoration the moving code does not obey.
+The anchor is the art: a 4-4-0 American is about 14 m over the buffers and the
+reference build makes it 0.85 tiles long, so a tile is **16 m** across. `rr.py
+constants` carries it into `WorldConstants.TILE_METRES`, and
+`TrainService.KMH_TO_TILE_PER_TICK` is derived from it alone.
+
+Consequences, so nobody rediscovers them as bugs:
+
+- The 256² valley is a little under 4 km across; the shipped coal line runs some
+  2.7 km, and a loaded leg across it takes a minute and a half of play at 1×.
+- A full-bleed consist at default zoom is about 3% of the view's width and moves
+  about 1.2 of its own body lengths a second — the measure the eye actually uses.
+- Art is drawn *large* against the domain's distances on purpose: a station's
+  4.5-tile catchment is 70 m of walking, and a "town" is a 12-tile region. The
+  model reads big; the ground it claims does not. Only `metres_per_tile` ties the
+  two together, so it is never re-tuned to make a train look faster.
 
 ## Size table (spec §8)
 

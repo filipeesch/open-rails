@@ -8,9 +8,11 @@ extends RefCounted
 ## Nothing here is put into a scene tree, because the test runner is a SceneTree
 ## script whose root is not in the tree while cases run: no node under it has a
 ## viewport.  That is a fact about the harness, not about the game, so the rig
-## states its own projection and the selection reads an authored viewport size.
-## Both take the live viewport the moment one exists, so the shipped path is the
-## one under test — there is no test-only projection to drift from the real one.
+## states its own projection and the layers that need pixels or a zoom are handed
+## what they would otherwise read live — an authored viewport size and the rig
+## itself.  Every one of them still takes the live viewport the moment one exists,
+## so the shipped path is the one under test — there is no test-only projection to
+## drift from the real one.
 
 const VIEWPORT_SIZE := Vector2(1280.0, 720.0)
 const FRAME := 1.0 / 60.0
@@ -39,7 +41,8 @@ static func stage(map_name: String = "founders_valley") -> TestView:
 	view.rig.configure(view.session.world)
 	view.entities = EntityRenderer.new()
 	view.host.add_child(view.entities)
-	view.entities.attach(view.session)
+	view.entities.attach(view.session, view.rig)
+	view.entities.viewport_size = VIEWPORT_SIZE
 	view.effects = EffectLayer.new()
 	view.host.add_child(view.effects)
 	view.effects.attach(view.session, view.rig)
@@ -51,7 +54,9 @@ static func stage(map_name: String = "founders_valley") -> TestView:
 
 
 ## A session over an empty grid: same services, no map content, so a case that
-## only needs terrain and a pointer does not pay for the shipped valley.
+## only needs terrain, a pointer or a drawn entity does not pay for the shipped
+## valley.  A blank grid is also the only ground a placement case can be sure of:
+## on the hand-authored map, where a yard would go is somebody else's decision.
 static func stage_blank(width: int = 64, height: int = 64) -> TestView:
 	var view := TestView.new()
 	view.host = Node.new()
@@ -63,6 +68,13 @@ static func stage_blank(width: int = 64, height: int = 64) -> TestView:
 	view.rig = IsoCameraRig.new()
 	view.host.add_child(view.rig)
 	view.rig.configure(view.session.world)
+	view.entities = EntityRenderer.new()
+	view.host.add_child(view.entities)
+	view.entities.attach(view.session, view.rig)
+	view.entities.viewport_size = VIEWPORT_SIZE
+	view.effects = EffectLayer.new()
+	view.host.add_child(view.effects)
+	view.effects.attach(view.session, view.rig)
 	view.selection = SelectionService.new()
 	view.host.add_child(view.selection)
 	view.selection.attach(view.session, view.rig)
@@ -136,6 +148,28 @@ func settle(frames: int = SETTLE_FRAMES) -> int:
 	for frame in frames:
 		rig.tick(FRAME)
 	return frames
+
+
+## Pull the view to a commanded zoom and let the easing arrive, so the tier a case
+## measures is the one the rig itself settles on rather than a tier asserted by
+## writing a number into a renderer.
+func zoom_to(tiles: float, frames: int = SETTLE_FRAMES) -> float:
+	rig.set_zoom(tiles)
+	settle(frames)
+	return rig.orthographic_tiles()
+
+
+## One frame of the whole loop, in the order `game_root._process` runs it: the
+## ticks the clock advances, then the layers the root drives.  A case that cares
+## about what presentation costs or changes has to run it, not just one of them.
+func run_frame(ticks: int = 1) -> void:
+	session.advance_ticks(ticks)
+	rig.tick(FRAME)
+	renderer.tick()
+	if entities != null:
+		entities.tick()
+	if effects != null:
+		effects.tick()
 
 
 ## Drive the renderer until its rebuild queue drains.  The queue is filled from

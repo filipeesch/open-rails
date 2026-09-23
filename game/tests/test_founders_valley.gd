@@ -207,7 +207,11 @@ func test_one_month_over_the_valley_lands_the_exact_numbers() -> void:
 		waiting += session.stations.total_waiting(station_id)
 	check_eq(waiting, 20, "the whole valley is holding exactly 20 tons of coal")
 
-	check_true(run_months(session.clock, 3), "three more months of trains running pass")
+	# A loaded leg across the valley is longer than a month of the calendar, so the
+	# wait is for the delivery rather than for a count of months.
+	TestSession.run_until(session,
+			func() -> bool: return float(session.cargo.delivered_by_cargo().get("coal", 0.0)) > 0.0,
+			TestSession.DELIVERY_TICKS)
 	var moved: float = session.cargo.delivered_by_cargo().get("coal", 0.0)
 	check_gt(moved, 0.0, "and the trains moved coal to the works that wanted it")
 

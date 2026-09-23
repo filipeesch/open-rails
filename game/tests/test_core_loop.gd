@@ -71,7 +71,9 @@ func test_the_core_loop_completes_and_pays_for_itself() -> void:
 	# --- the loop then runs itself ---------------------------------------------
 	var cash_before_running := session.economy.cash
 	var delivered_before := session.cargo.delivery_count()
-	session.clock.step_ticks(3000)
+	TestSession.run_until(session,
+			func() -> bool: return session.cargo.delivery_count() > delivered_before,
+			TestSession.DELIVERY_TICKS)
 
 	# train loads cargo
 	check_neq(session.trains.state_label(train), "Idle", "the train is working, not parked")
@@ -106,7 +108,8 @@ func test_the_second_line_earns_as_well_as_the_first() -> void:
 	## timetabled the same way, and the company's monthly takings grow.
 	var first := TestSession.coal_line(session)
 	check_true(bool(first["ok"]), "the first line is running: " + String(first["reason"]))
-	session.clock.step_ticks(3000)
+	TestSession.run_until(session, func() -> bool: return session.cargo.revenue_total() > 0.0,
+			TestSession.DELIVERY_TICKS)
 	var month_one := session.cargo.revenue_total()
 	check_gt(month_one, 0.0, "the first line is earning")
 
@@ -135,9 +138,11 @@ func test_the_second_line_earns_as_well_as_the_first() -> void:
 	]
 	check_true(bool(session.trains.set_route(int(bought["id"]), stops)["ok"]), "timetabled like the first")
 
-	session.clock.step_ticks(3000)
+	TestSession.run_until(session,
+			func() -> bool: return session.cargo.revenue_total() > month_one * 1.2,
+			2 * TestSession.DELIVERY_TICKS)
 	check_gt(session.cargo.revenue_total(), month_one * 1.2,
-			"a month after expanding, the company has earned more than it did before (%.0f then, %.0f now)" % [
+			"with both lines trading, the company has earned more than it did before (%.0f then, %.0f now)" % [
 				month_one, session.cargo.revenue_total()])
 	check_true(session.economy.is_consistent(), "two lines, one ledger, still reconciling")
 

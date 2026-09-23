@@ -11,8 +11,10 @@ const MAX_CHUNKS_PER_FRAME := 4
 const GAUGE := 0.30
 const RAIL_WIDTH := 0.055
 const BALLAST_WIDTH := 0.72
-const RAIL_LIFT := 0.07
-const BALLAST_LIFT := 0.02
+## Every height a piece is drawn at comes from `TrackPieces`, the one place the
+## running surface is decided: a locomotive is placed from the same figures, and a
+## consist drawn to a different rail head than the one drawn is a consist floating
+## in the air or buried in the ballast.
 const TIES_PER_HALF := 2
 
 const COLOUR_BALLAST := Color(0.55, 0.53, 0.49)
@@ -28,6 +30,7 @@ var material: StandardMaterial3D
 var ghost_material: StandardMaterial3D
 
 var _chunks := {}
+var _piece_census := {}
 var _pending: Array[Vector2i] = []
 var _rebuilt_total := 0
 var _triangle_total := 0
@@ -40,6 +43,16 @@ func _init() -> void:
 	material.vertex_color_use_as_albedo = true
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	material.roughness = 0.8
+	# A preview has to be seen through.  Its green/yellow/red is baked into the
+	# vertices like everything else here, so without a vertex-colour material of its
+	# own the ghost would be laid down in the engine's default grey — a preview that
+	# shows where a line would go but not whether it may.
+	ghost_material = StandardMaterial3D.new()
+	ghost_material.resource_name = "construction_ghost"
+	ghost_material.vertex_color_use_as_albedo = true
+	ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ghost_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 
 func attach(grid: WorldGrid, rail_service: RailService) -> void:
@@ -47,6 +60,8 @@ func attach(grid: WorldGrid, rail_service: RailService) -> void:
 	rail = rail_service
 	_ghost = MeshInstance3D.new()
 	_ghost.name = "ConstructionGhost"
+	_ghost.material_override = ghost_material
+	_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_ghost)
 	rail.track_changed.connect(_on_track_changed)
 	rail.track_removed.connect(_on_track_changed)
@@ -98,6 +113,42 @@ func ghost_tiles() -> Array[Vector2i]:
 	return _ghost_tiles
 
 
+## The preview's geometry, or null when nothing is being previewed here.
+func ghost_geometry() -> Mesh:
+	return null if _ghost == null else _ghost.mesh
+
+
+## Draw the build tool's preview.  The controller owns the intent — which tool is
+## in hand and what the next click would do — and this renderer only says what
+## that would look like laid down.  A station is the exception: its ghost is a yard
+## and a reach, not a run of sleepers, so the rail layer yields the ground to
+## `StationGhost` rather than drawing the same cells twice.
+func attach_build_controller(controller: InputController) -> void:
+	build_controller = controller
+	controller.ghost_changed.connect(_on_ghost_changed)
+	controller.tool_changed.connect(_on_tool_changed)
+
+
+var build_controller: InputController = null
+
+
+func _on_ghost_changed(tiles: Array[Vector2i], state: String, _reason: String,
+		_cost: float) -> void:
+	if state == "none" or _station_holds_the_ghost():
+		hide_ghost()
+		return
+	show_ghost(tiles, state)
+
+
+func _on_tool_changed(tool: String) -> void:
+	if tool == InputController.TOOL_STATION:
+		hide_ghost()
+
+
+func _station_holds_the_ghost() -> bool:
+	return build_controller != null and build_controller.tool == InputController.TOOL_STATION
+
+
 # --- meshes ---------------------------------------------------------------
 
 func _on_track_changed(tiles: Array[Vector2i]) -> void:
@@ -130,6 +181,7 @@ func _rebuild_chunk(chunk: Vector2i) -> void:
 		node.material_override = material
 		add_child(node)
 		_chunks[key] = node
+	_census_chunk(key, tiles)
 	var previous := int(node.get_meta("triangles", 0)) if node.has_meta("triangles") else 0
 	node.mesh = mesh
 	var triangles := 0
@@ -138,6 +190,44 @@ func _rebuild_chunk(chunk: Vector2i) -> void:
 	node.set_meta("triangles", triangles)
 	_triangle_total += triangles - previous
 	_rebuilt_total += 1
+
+
+## Name every piece in the chunk.  The census is what makes the piece vocabulary
+## more than a caption: the renderer reports the railway in the same words the
+## table uses, and a piece that was never selected shows up as an absent name
+## rather than as a guess.
+func _census_chunk(key: int, tiles: Array[Vector2i]) -> void:
+	var counts := {}
+	for tile in tiles:
+		var piece := TrackPieces.piece_at(world, tile)
+		counts[piece] = int(counts.get(piece, 0)) + 1
+	if counts.is_empty():
+		_piece_census.erase(key)
+		return
+	_piece_census[key] = counts
+
+
+## How much railway of each shape is drawn, across every chunk built so far.
+func piece_counts() -> Dictionary:
+	var total := {}
+	for key in _piece_census.keys():
+		for piece in _piece_census[key].keys():
+			total[piece] = int(total.get(piece, 0)) + int(_piece_census[key][piece])
+	return total
+
+
+func piece_total() -> int:
+	var total := 0
+	for count in piece_counts().values():
+		total += int(count)
+	return total
+
+
+## The piece a single cell is drawn as, or "" when it carries no rail.
+func piece_of(tile: Vector2i) -> String:
+	if world == null or not world.in_bounds(tile) or not world.has_rail_cell(tile):
+		return ""
+	return TrackPieces.piece_at(world, tile)
 
 
 func _rail_tiles_in(chunk: Vector2i) -> Array[Vector2i]:
@@ -163,9 +253,9 @@ func _build_mesh(tiles: Array[Vector2i], tint: Color, is_ghost: bool) -> ArrayMe
 		if is_ghost and mask == 0:
 			# A preview cell with no track yet still needs a footprint marker.
 			_append_pad(vertices, normals, colours, indices, tile, tint)
-		for direction in RailDirections.COUNT:
-			if mask & (1 << direction) == 0:
-				continue
+		# The piece table decides what a mask is made of.  Enumerating the bits by
+		# hand here would be a second, quieter definition of every piece.
+		for direction in TrackPieces.halves_for(mask):
 			# A connection is drawn as the pair of halves that meet at the
 			# shared edge — each endpoint cell emits *its* half.  Skipping the
 			# higher-indexed end left every line dashed at the tile edges.
@@ -188,35 +278,38 @@ func _build_mesh(tiles: Array[Vector2i], tint: Color, is_ghost: bool) -> ArrayMe
 func _append_half_track(vertices: PackedVector3Array, normals: PackedVector3Array,
 		colours: PackedColorArray, indices: PackedInt32Array, tile: Vector2i,
 		direction: int, tint: Color, is_ghost: bool) -> void:
-	var centre := Vector2(tile.x + 0.5, tile.y + 0.5)
+	var centre := TrackPieces.lane(tile)
 	var offset := Vector2(RailDirections.offset(direction))
 	var edge := centre + offset * 0.5
 	var perpendicular := Vector2(-offset.y, offset.x).normalized()
-	var here_height := world.elevation_at(tile) + BALLAST_LIFT
 	var neighbour := tile + RailDirections.offset(direction)
-	var far_height := world.elevation_at(neighbour) + BALLAST_LIFT
-	# The shared edge sits at the midpoint of the two cells' heights so the two
-	# endpoint halves join into one continuous slope instead of a V-knot.
-	var there_height := (here_height + far_height) * 0.5
+	# Ballast and rails are read off the shared rule rather than worked out here, so
+	# the line the renderer draws and the line a locomotive stands on are the same
+	# measurement — and the sleeper sits under the rail head instead of through it.
+	var here_ballast := TrackPieces.ballast_top(world, tile, neighbour, 0.0)
+	var there_ballast := TrackPieces.ballast_top(world, tile, neighbour, 0.5)
+	var here_head := TrackPieces.rail_head(world, tile, neighbour, 0.0)
+	var there_head := TrackPieces.rail_head(world, tile, neighbour, 0.5)
 	var ballast := _tint(COLOUR_BALLAST, tint, is_ghost)
 	var rail_colour_here := _tint(COLOUR_RAIL, tint, is_ghost)
-	_append_strip(vertices, normals, colours, indices, centre, here_height, edge, there_height,
+	_append_strip(vertices, normals, colours, indices, centre, here_ballast, edge, there_ballast,
 		BALLAST_WIDTH, ballast)
 	if is_ghost:
 		return
 	var tie_colour := _tint(COLOUR_TIE, tint, is_ghost)
+	var tie_lift := TrackPieces.LIFT_TIE - TrackPieces.LIFT_BALLAST
 	for tie in TIES_PER_HALF:
 		var t := (float(tie) + 0.5) / float(TIES_PER_HALF)
 		var along := centre.lerp(edge, t)
-		var height := lerpf(here_height, there_height, t) + 0.02
+		var height := lerpf(here_ballast, there_ballast, t) + tie_lift
 		_append_strip(vertices, normals, colours, indices,
-			along - perpendicular * 0.17, height + RAIL_LIFT,
-			along + perpendicular * 0.17, height + RAIL_LIFT, 0.10, tie_colour)
+			along - perpendicular * 0.17, height,
+			along + perpendicular * 0.17, height, 0.10, tie_colour)
 	for side: float in [-1.0, 1.0]:
 		var offset_vector := perpendicular * (GAUGE * 0.5 * side)
 		_append_strip(vertices, normals, colours, indices,
-			centre + offset_vector, here_height + RAIL_LIFT,
-			edge + offset_vector, there_height + RAIL_LIFT, RAIL_WIDTH, rail_colour_here)
+			centre + offset_vector, here_head,
+			edge + offset_vector, there_head, RAIL_WIDTH, rail_colour_here)
 
 
 func _append_strip(vertices: PackedVector3Array, normals: PackedVector3Array,

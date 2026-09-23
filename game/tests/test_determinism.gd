@@ -225,12 +225,12 @@ func test_the_calendar_crosses_the_year_once_a_month() -> void:
 	check_eq(clock.date.day, 1, "on the first of it")
 	watch_months(clock)
 	for expected_month in range(2, 13):
-		check_true(run_months(clock, 1, 900), "month %d of 1850 rolls over" % expected_month)
+		check_true(run_months(clock, 1), "month %d of 1850 rolls over" % expected_month)
 		check_eq(clock.date.month, expected_month, "the calendar is in the month it earned")
 		check_eq(clock.date.year, 1850, "and still in 1850 until December runs out")
 		check_eq(clock.date.day, 1, "a month always opens on the first")
 		check_eq(months_observed, expected_month - 1, "exactly one month event per month")
-	check_true(run_months(clock, 1, 900), "December 1850 finally runs out")
+	check_true(run_months(clock, 1), "December 1850 finally runs out")
 	check_eq(clock.date.year, 1851, "December 1850 hands over to 1851")
 	check_eq(clock.date.month, 1, "and the month counter starts again at January")
 	check_eq(clock.date.day, 1, "on the first of it")
@@ -242,7 +242,9 @@ func test_the_timing_data_sets_the_pace_and_nothing_else() -> void:
 	var shipped := clock.ticks_per_day
 	var configured := int(session.data.timing.get("ticks_per_day", 0.0))
 	check_eq(shipped, configured, "the clock runs at the pace the data file gives it")
-	check_eq(shipped, 12, "and the shipped pace is twelve ticks to a day")
+	check_eq(shipped, 60,
+		"and the shipped pace puts a month at ninety seconds of play at 1x, which is a "
+		+ "little over one loaded leg across the shipped valley")
 	watch_months(clock)
 	check_true(run_months(clock, 1), "a month passes at the shipped pace")
 	var month_ticks := clock.tick_count

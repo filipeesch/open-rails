@@ -11,7 +11,11 @@ signal station_removed(station_id: int)
 signal station_renamed(station_id: int, new_name: String)
 signal station_inventory_changed(station_id: int)
 
-const RAIL_ACCESS_RADIUS := 2
+## How far off the yard centre a candidate rail cell may sit before it is
+## passed over for one that is more central, in the access scoring below.
+## Everything a station actually reaches is `def.rail_search_radius` rings,
+## so the reach is authored with the class rather than hard-coded here.
+const CENTRING_WEIGHT := 10.0
 
 ## Coverage queries run once per source per month, and the map is 65 536 tiles
 ## wide, so they must not walk the station list.  Stations are bucketed into
@@ -91,8 +95,8 @@ func placement_reason(definition_id: String, anchor: Vector2i) -> String:
 	# complaints, the player needs the one they can act on.
 	if find_rail_access(anchor, def).is_empty():
 		if def.requires_straight_rail:
-			return "Requires straight rail within %d tiles" % def.rail_search_radius
-		return "Requires rail access within %d tiles" % def.rail_search_radius
+			return "Requires a straight rail run beside the yard"
+		return "Requires rail beside the yard"
 	for tile in footprint:
 		if _world.terrain_at(tile) == WorldGrid.Terrain.WATER:
 			return "Footprint overlaps water"
@@ -108,23 +112,129 @@ func placement_reason(definition_id: String, anchor: Vector2i) -> String:
 	return ""
 
 
-## Nearest qualifying rail cell, or {} when there is none.
+## The rail cell the yard couples to, or {} when it stands off a line.  The
+## result carries the run's `direction` as well, because "which cell" is only
+## half of it: the yard has to be turned to face down the line, and nothing else
+## in the save records that.
+##
+## Two rules, both of which the old square scan broke.
+##
+## The ground a yard couples to is the ground beside its platform, so the search
+## walks rings outward from the footprint -- ring 1 touches it -- up to
+## `rail_search_radius` rings out.  The old version took the nearest rail in a
+## square of side `2 * radius + 3` and never filtered by that radius at all, so a
+## yard asking for "within 2" happily coupled to track two and a half tiles off,
+## and the drawing built on top of it came out adrift from the line.
+##
+## And where two cells qualify, the one the yard sits *beside* wins over one it
+## sits back from: a station is drawn as one yard with a platform edge at the
+## rails, so a body kept inside its footprint while the rails run two tiles away
+## is a station standing in a field with the line somewhere past it.
+##
+## A depot, which asks for `requires_straight_rail`, only hears about a cell the
+## trains can run through -- the junctions, curves and dead ends it would
+## otherwise couple to are exactly the ones where a train cannot pass.
 func find_rail_access(anchor: Vector2i, def: DataRegistry.StationDef) -> Dictionary:
-	var centre := anchor + (def.footprint / 2)
+	var centre := centre_of(anchor, def.footprint)
 	var best := {}
-	var best_distance := 1e9
-	for offset_y in range(-def.rail_search_radius - 1, def.rail_search_radius + 2):
-		for offset_x in range(-def.rail_search_radius - 1, def.rail_search_radius + 2):
-			var tile := centre + Vector2i(offset_x, offset_y)
+	var best_score := 1e9
+	var reach := maxi(1, def.rail_search_radius)
+	for ring in range(1, reach + 1):
+		for tile in _ring_outside(anchor, def.footprint, ring):
 			if not _rail.network.has_rail(tile):
 				continue
 			if def.requires_straight_rail and not _rail.network.is_straight(tile):
 				continue
-			var distance := WorldCoords.distance_tiles(centre, tile)
-			if distance < best_distance:
-				best_distance = distance
-				best = {"tile": tile, "distance": distance}
+			var direction := run_direction(tile)
+			if direction == Vector2.ZERO and not def.requires_straight_rail:
+				direction = _any_axis(tile)
+			if direction == Vector2.ZERO:
+				continue
+			var lane := WorldCoords.tile_to_world_xz(tile)
+			var offset := absf((lane - centre).dot(Vector2(-direction.y, direction.x)))
+			var score := offset * CENTRING_WEIGHT + float(ring)
+			if score < best_score:
+				best_score = score
+				best = {"tile": tile, "distance": float(ring), "direction": direction}
 	return best
+
+
+## The axis trains run along at `tile`, as a unit tile-space direction: an axis
+## with track on both sides.  A cell reached from one side only -- a dead end, the
+## stub of a spur -- has no run direction, because nothing runs *through* it.
+## Rails run eight ways, so a diagonal line yields a diagonal direction.
+func run_direction(tile: Vector2i) -> Vector2:
+	var value := _rail.network.mask(tile)
+	for direction in [RailDirections.N, RailDirections.NE, RailDirections.E, RailDirections.SE]:
+		if RailDirections.has(value, direction) \
+				and RailDirections.has(value, RailDirections.opposite(direction)):
+			return _direction_of_offset(RailDirections.offset(direction))
+	return Vector2.ZERO
+
+
+## Where a yard's trains reach the line: the cell it coupled to and the axis they
+## run along it.  This is what the drawing places a station by, so it is a pure
+## read of what the yard was built against -- unlike `rail_access_tile`, which
+## re-derives when the line has since moved and so is the simulation's question.
+## If the line a station faced has been pulled up, the yard keeps facing the axis
+## it was built to rather than snapping to a nonsense angle.
+func rail_access(station_id: int) -> Dictionary:
+	var instance := station(station_id)
+	if instance.is_empty():
+		return {"tile": NO_RAIL_ACCESS, "direction": Vector2.RIGHT}
+	var tile: Vector2i = instance.get("access_tile", NO_RAIL_ACCESS)
+	var direction := run_direction(tile)
+	if direction == Vector2.ZERO:
+		direction = _any_axis(tile)
+	if direction == Vector2.ZERO:
+		direction = Vector2.RIGHT
+	return {"tile": tile, "direction": direction}
+
+
+## The middle of a yard, as a continuous position.  A tile spans `tile` ..
+## `tile + 1`, so this lands on a grid line for an even footprint and on a tile
+## centre for an odd one -- which is why it cannot be the rounded `tile`.
+func centre_of(anchor: Vector2i, size: Vector2i) -> Vector2:
+	return Vector2(anchor) + Vector2(size) * 0.5
+
+
+func _any_axis(tile: Vector2i) -> Vector2:
+	for direction in RailDirections.directions_in(_rail.network.mask(tile)):
+		return _direction_of_offset(RailDirections.offset(direction))
+	return Vector2.ZERO
+
+
+## The cells exactly `ring` steps outside the yard's footprint, walked around its
+## border.  Ring 1 is the ring of ground the platform stands against.
+func _ring_outside(anchor: Vector2i, size: Vector2i, ring: int) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var min_x := anchor.x - ring
+	var min_y := anchor.y - ring
+	var max_x := anchor.x + size.x - 1 + ring
+	var max_y := anchor.y + size.y - 1 + ring
+	for x in range(min_x, max_x + 1):
+		cells.append(Vector2i(x, min_y))
+		cells.append(Vector2i(x, max_y))
+	for y in range(min_y + 1, max_y):
+		cells.append(Vector2i(min_x, y))
+		cells.append(Vector2i(max_x, y))
+	return cells
+
+
+## A tile-space step as a direction.  A diagonal's offset is (1, 1) — a whole
+## tile in each axis, not a unit vector — and everything downstream reads these
+## as axes and measures distances along them, so they are normalised here.
+## Turns a rail-direction offset into a unit vector.
+##
+## It NORMALISES, because the only thing it is for is a direction: feed it a cell
+## coordinate and it answers with the bearing of that cell from the origin, which is a
+## number that looks plausible and means nothing.  A cell's lane centre is
+## `WorldCoords.tile_to_world_xz`, the one place that convention lives.
+func _direction_of_offset(offset: Vector2i) -> Vector2:
+	var vector := Vector2(float(offset.x), float(offset.y))
+	if vector.length_squared() <= 0.0001:
+		return vector
+	return vector.normalized()
 
 
 func build(definition_id: String, anchor: Vector2i, label: String = "") -> Dictionary:
@@ -361,6 +471,54 @@ func rail_access_tile(station_id: int) -> Vector2i:
 
 func has_rail_access(station_id: int) -> bool:
 	return rail_access_tile(station_id) != NO_RAIL_ACCESS
+
+
+## The cell a train standing at this yard stands on -- which is not always the cell the
+## yard couples to.
+##
+## A yard's platform is a length of deck down the line, and a train halts *along the
+## deck*: the thing a yard exists to do is exchange cargo with a train standing beside
+## it.  Coupling answers a different question -- which cell the ground beside the yard
+## owns, and for a depot a cell the line runs through -- and where the line is straight
+## for only part of a yard's frontage those two answers differ by a cell or two.  The
+## valley's coal wharf is the case the tests keep: its coupling cell is the one straight
+## cell at the east end of a three-cell frontage, so a train held there stood with its
+## engine at the platform's last handrail and its wagons back along the approach, off
+## the deck they had come to serve.
+##
+## So the halt is the cell abreast the middle of the yard's own ground, slid along the
+## run no further than that ground reaches: the same middle the platform is built
+## around, which is why a train stopped here stands at the station the player sees
+## rather than at whichever cell happens to be nearest it.  Ground with no rail abreast
+## the middle falls back to the coupling cell -- a yard standing on a curve stops where
+## it can, not where it would like to.
+func berth_tile(station_id: int) -> Vector2i:
+	var instance := station(station_id)
+	if instance.is_empty():
+		return NO_RAIL_ACCESS
+	var access := rail_access(station_id)
+	var tile: Vector2i = access["tile"]
+	if tile == NO_RAIL_ACCESS:
+		return NO_RAIL_ACCESS
+	var direction: Vector2 = access.get("direction", Vector2.RIGHT)
+	if direction == Vector2.ZERO:
+		return tile
+	var footprint: Vector2i = instance.get("footprint", Vector2i(1, 1))
+	var centre := centre_of(instance["anchor"], footprint)
+	var lane := WorldCoords.tile_to_world_xz(tile)
+	var slides := roundi((centre - lane).dot(direction))
+	# Only as far along as the yard's own ground: a stop beyond the boundary is a train
+	# standing on ground the player never bought.
+	var reach := int(floorf((absf(direction.x) * float(footprint.x) \
+			+ absf(direction.y) * float(footprint.y)) * 0.5))
+	slides = clampi(slides, -reach, reach)
+	if slides == 0:
+		return tile
+	var berth := tile + Vector2i(roundi(direction.x * float(slides)),
+			roundi(direction.y * float(slides)))
+	if not _rail.network.has_rail(berth):
+		return tile
+	return berth
 
 
 func station_at_rail(tile: Vector2i) -> int:

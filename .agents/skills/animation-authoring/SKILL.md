@@ -42,12 +42,26 @@ simulation state (`train-system`, `runtime-rendering`), animation LOD tiers
   `{"idle": null, "moving": "Move"}`.
 - Attachment points (manifest, asset local space): `chimney_smoke`,
   `coupler_front`, `coupler_rear`, `cargo_load_<i>`.
-- Runtime consumers read `manifest.animations[state]` and
-  `manifest.attachments[name]`.
+- Runtime consumers read `manifest.animation_states[state]`,
+  `manifest.wheel_circumference_tiles[role]` and `manifest.attachments[name]`.
 
 ## Implementation rules
 - Name Blender actions after the canonical state they implement, or map
   explicitly; never rename an action without rebuilding.
+- **Never name an action with a leading or trailing `loop` / `cycle` token.**
+  Godot's glTF importer reads those two tokens out of a clip's name as a playback
+  hint and *strips them from the name it files the clip under*: an action
+  authored `run_cycle` arrives in the engine as `run`, and the published
+  `animation_states` map would then point at a clip that does not exist. The
+  importer's hint is worthless here — this library authors looping with cyclic
+  keyframes and LINEAR interpolation — so `AnimationRegistry.action()` rejects
+  such a name outright. Name the clip for what it is (`run`, `roll`,
+  `mine_works`).
+- A wheel's crank angle is travelled distance ÷ `wheel_circumference_tiles`,
+  wrapped to a turn (spec: "wheels turn because the train moved"). Author the
+  `moving` clip as **exactly one revolution** over its loop, so the phase is the
+  clip position; `ctx.anim.spin()` and `ctx.register_wheel()` publish the
+  circumference with the radius the wheel was built at.
 - Animate rotation of wheel objects about their own axis only; drive rods by
   parented empties, not shape keys — shape keys don't survive cheaply.
 - Keep action sample rate at project 24 fps (project decision); the runtime

@@ -58,6 +58,13 @@ art validation (`asset-validation`), CI provider config (none yet —
 - Determinism test guards: the clock is the only time source; rerun same
   seed twice, compare states.
 - Use `--filter` while iterating; run the full suite before merge.
+- When a test checks what presentation *drew*, read it back off the geometry —
+  the mesh's vertex array, not the arguments that were handed to the renderer.
+  Colours stored in a vertex array are bytes, so compare them at a 1/255
+  tolerance (`check_near` per channel), never with `check_eq` on a `Color`.
+- Presentation nodes that react to the controller are proved by connecting a
+  real controller to a real renderer and feeding it pointer events; a renderer
+  whose entry point nobody calls is invisible to a compile-only check.
 - Never delete/weaken an assertion to go green — fix or justify on the PR
   (the integration scenario is untouchable).
 

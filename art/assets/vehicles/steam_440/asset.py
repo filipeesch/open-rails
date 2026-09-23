@@ -83,7 +83,7 @@ def running_gear(ctx) -> None:
 
 
 def _moving_animation(ctx) -> None:
-    action = ctx.anim.action("run_cycle")
+    action = ctx.anim.action("run")
     for group in (ctx._drivers, ctx._leaders):
         for pair in group.values():
             for wheel in pair.values():
@@ -91,7 +91,7 @@ def _moving_animation(ctx) -> None:
     crank = 0.03 * ctx.world.tile_size
     ctx.anim.reciprocate(ctx._rod_left, action, amplitude=crank, index=0)
     ctx.anim.reciprocate(ctx._rod_right, action, amplitude=crank, index=0)
-    ctx.anim.register_state("moving", "run_cycle")
+    ctx.anim.register_state("moving", "run")
 
 
 def _attachments(ctx) -> None:

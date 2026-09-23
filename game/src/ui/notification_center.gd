@@ -6,6 +6,17 @@ extends PanelContainer
 
 const MAX_VISIBLE := 5
 const LIFETIME := 5.0
+## The toast column is a fixed box, anchored to the bottom-right corner of the
+## window and standing clear of the tool bar.  A toast has to be somewhere the
+## player's own work is not: the top band is the ledger, the left band is the tool
+## drawer, and the right band above this one is the inspector — so the corner
+## above the tool bar is the one patch no other layer claims.  Sizing it for
+## `MAX_VISIBLE` toasts rather than for one means a message cannot shove the ones
+## already reading, and the box itself draws nothing: only the toasts have a panel.
+const WIDTH := 320.0
+const EDGE := 8.0
+const ROW := 40.0
+const GAP := 4.0
 
 var session: GameSession
 var column: VBoxContainer
@@ -17,7 +28,19 @@ func attach(game_session: GameSession) -> void:
 	theme = GameTheme.build()
 	add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	custom_minimum_size = Vector2(300, 0)
+	# Anchored to the corner rather than laid out by its parent: the `Notifications`
+	# control it lives under spans the whole window, and a code-built `Control` left
+	# at its default anchors collapses into the top-left — which is where the ledger
+	# is drawn, so an unplaced toast would land on the date.
+	anchor_left = 1.0
+	anchor_top = 1.0
+	anchor_right = 1.0
+	anchor_bottom = 1.0
+	offset_left = -(WIDTH + EDGE)
+	offset_right = -EDGE
+	offset_bottom = -(float(GameTheme.CHROME_BAND) + EDGE)
+	offset_top = offset_bottom - box_height()
+	custom_minimum_size = Vector2(WIDTH, 0)
 	column = VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	add_child(column)
@@ -58,6 +81,11 @@ func _process(_delta: float) -> void:
 
 func visible_count() -> int:
 	return _rows.size()
+
+
+## The height the column reserves for its toasts, at the most it will ever show.
+func box_height() -> float:
+	return float(MAX_VISIBLE) * ROW + float(MAX_VISIBLE - 1) * GAP
 
 
 func _on_insufficient(cost: float, cash: float, label: String) -> void:

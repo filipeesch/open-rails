@@ -25,6 +25,12 @@ const FONT_STRONG := 15
 const FONT_TITLE := 19
 const GAP := 8
 const PAD := 10
+## The height of the permanent chrome: the top bar and the bottom toolbar each
+## hold exactly one band of this height.  It sits here rather than in the two
+## places that draw chrome because a third party needs it — the map-label layer
+## keeps a place's name out of those bands — and a test asserts that the authored
+## scene and this number still agree.
+const CHROME_BAND := 52
 
 
 static func build() -> Theme:
@@ -70,6 +76,24 @@ static func button(colour: Color) -> StyleBoxFlat:
 	box.content_margin_top = 5
 	box.content_margin_bottom = 5
 	return box
+
+
+## Let go of a widget that is going away.  Inside the tree this queues — the
+## widget being dropped can be the very one whose press caused the drop, and
+## freeing it mid-emit is what the engine will not forgive.  An orphan panel
+## (a preview, a headless test) never gets the frame that drains the queue, so
+## for it the release is immediate.  Every panel that reclaims rows releases
+## through here for the same reason `ContextInspector` does.
+static func release(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node.is_inside_tree():
+		node.queue_free()
+		return
+	var parent := node.get_parent()
+	if parent != null:
+		parent.remove_child(node)
+	node.free()
 
 
 static func row(active: bool) -> StyleBoxFlat:

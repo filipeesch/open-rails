@@ -200,16 +200,19 @@ func company_name() -> String:
 	return economy.company_name
 
 
+## The company's two livery colours, chosen by its name and nothing else: no screen
+## asks for paint, and a save that carries the name can repaint itself.  The
+## renderer reads this and never keeps a copy — presentation reads state.
+func company_livery() -> Dictionary:
+	return data.livery_for(company_name())
+
+
 # --- notifications --------------------------------------------------------
 
 ## Domain events the player should hear about, announced in one place.  The
 ## notification centre listens; nothing here knows a UI exists.
 func notify(message: String, severity: String = "info") -> void:
 	notice.emit(message, severity)
-
-
-func camera_yaw() -> float:
-	return 45.0
 
 
 # --- wiring ---------------------------------------------------------------
@@ -430,6 +433,10 @@ func restore(snapshot_data: Dictionary) -> bool:
 	trains.from_dict(Dictionary(snapshot_data.get("trains", {})))
 	clock.from_dict(Dictionary(snapshot_data.get("clock", {})))
 	clock.add_subsystem("trains", Callable(trains, "advance_tick"))
+	# A halt is measured in trains, and a route that was rebuilt before its train
+	# arrived had no train to measure with.  Re-measure now the whole domain is back,
+	# then hand every consist its route's current path.
+	routes.recompute_all()
 	trains.refresh_paths()
 	_apply_live_counters(Dictionary(snapshot_data.get("counters", {})))
 	started = true

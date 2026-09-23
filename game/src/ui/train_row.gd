@@ -30,9 +30,20 @@ var _follow_button: Button
 var _sell_button: Button
 var _rename_open := false
 var _sell_armed := false
+var _built := false
 
 
 func _ready() -> void:
+	_ensure_built()
+
+
+## Build once, whoever arrives: the scene tree through `_ready`, or an orphan
+## host (a headless test, a preview) through `bind`.  A row that only builds in
+## `_ready` is a row that cannot be answered for outside a live viewport.
+func _ensure_built() -> void:
+	if _built:
+		return
+	_built = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	add_theme_stylebox_override("panel", GameTheme.row(false))
 	_build()
@@ -117,6 +128,7 @@ func _action_button(text: String, tooltip: String, request: String) -> Button:
 func bind(game_session: GameSession, id: int) -> void:
 	session = game_session
 	train_id = id
+	_ensure_built()
 	refresh()
 
 

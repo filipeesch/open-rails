@@ -46,3 +46,18 @@ Track rendering SHALL read the logical rail network as its only source of truth,
 #### Scenario: Rebuilt network reproduces geometry
 - **WHEN** the same connection set is built twice through different paths
 - **THEN** the resulting rendered piece selection is identical
+
+### Requirement: One authority for the height of the rail
+The height of the running surface — ballast top, tie head and rail head — SHALL be derived in one place and read from that place by both the rails and the rolling stock that rides them, so a train cannot be drawn floating above or sunk into the track beside it. The rail head SHALL be the height a compiled vehicle's wheels are authored to rest at.
+
+#### Scenario: Wheels sit on the rail they are drawn with
+- **WHEN** a vehicle is placed on a cell with a ballast lift under it
+- **THEN** its wheels rest at the rail head that renderer drew for that same cell, to within a hair
+
+#### Scenario: A lifted line carries its trains with it
+- **WHEN** the ground under a line is raised by a construction lift
+- **THEN** both the rails and the stock running over them rise by the same figures
+
+#### Scenario: The two agree without being told twice
+- **WHEN** the shared ride height is compared across the renderer and the domain
+- **THEN** one value is defined and `rr.py check` reports that the readers agree with it

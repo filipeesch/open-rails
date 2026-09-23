@@ -17,14 +17,34 @@ signal train_revenue(train_id: int, station_id: int, cargo_id: String, revenue: 
 
 enum State { IDLE, LOADING, MOVING, LOST }
 
-## km/h → tiles per 20 Hz tick.  Chosen so a 4-4-0 at full speed crosses a
-## typical 40-tile route in well under a simulated day.
-const KMH_TO_TILE_PER_TICK := 0.0105
+## km/h → tiles per tick.  This is the one place the two units of the game meet,
+## and it is derived rather than chosen: 1 km/h is 1/3.6 m/s, a tile is
+## `WorldConstants.TILE_METRES` metres, and the clock runs `SimulationClock.TICK_RATE`
+## ticks to the real second.  A hand-picked number here is what made the valley
+## run at 20 locomotive-lengths a second while the panel said 55 km/h — the label
+## was honest and the ground was not, because the figure was tuned for pacing and
+## never reconciled with how long a train is.  Pacing now follows from the scale,
+## which is the only direction a number like this can legitimately come from.
+const KMH_TO_TILE_PER_TICK := 1.0 / (3.6 * WorldConstants.TILE_METRES * SimulationClock.TICK_RATE)
 const LOAD_PER_TICK := 1.6
+## A train waiting inside its own braking distance still inches forward, at a
+## tenth of what it can do on the level — a crawl that scales with the engine
+## rather than an absolute figure that would have to be re-tuned with the scale.
+const CREEP_FRACTION_OF_TOP := 0.1
 
 ## What comes back when a train is sold.  Half, because the works buys the steel
 ## second-hand — and stated as a figure so a confirm prompt can promise it.
 const REFUND_RATE := 0.5
+
+## The slack between two coupled vehicles, in tiles: the distance from one
+## vehicle's coupler face to the next one's.  A consist is its vehicles plus this
+## slack at every join, which is why a train's length is not the sum of the
+## models' lengths.
+const COUPLER_GAP_TILES := 0.06
+## How far a walk for the ground a standing consist stands on may run, in cells: the
+## longest train V1 can buy is a handful of vehicles, and a walk that outran that would
+## be looking for ground no consist needs.
+const MAX_HALT_LINE_CELLS := 24
 
 var _trains := {}
 var _order: Array[int] = []
@@ -52,6 +72,11 @@ func configure(world: WorldGrid, rail: RailService, stations: StationService, ro
 	_registry = registry
 	_clock = clock
 	_ids = ids
+	# A halt is measured in trains, not in markers: a route asks its train how
+	# long it is, and pulls the stop along the line by half of that.  Wired here
+	# rather than by a reference, because the routes must keep working for a
+	# caller that has no trains at all.
+	_routes.set_halt_set_back_provider(Callable(self, "_halt_set_back_for"))
 
 
 # --- purchase -------------------------------------------------------------
@@ -406,9 +431,279 @@ func position_tiles(train_id: int) -> Vector2:
 		return Vector2.ZERO
 	var path: PackedVector2Array = instance["path"]
 	if path.size() < 2:
-		var station_tile := _stations.rail_access_tile(int(instance["station"]))
-		return Vector2(station_tile)
+		var station_tile := _stations.berth_tile(int(instance["station"]))
+		return WorldCoords.tile_to_world_xz(station_tile)
 	return _point_at(path, float(instance["progress"]))
+
+
+## Where each vehicle of a consist stands, as one read of the path.
+##
+## `offsets` are distances **behind the engine along the rails**, in tiles -- the
+## engine itself is `0.0`, the first wagon something over `0.9`.  Every entry
+## comes back as `{at, direction, from_tile, to_tile}`: the lane centre that
+## vehicle is riding, the direction of the run it is riding on, and the two cells
+## that run joins, which is what a caller needs to put the vehicle's wheels on the
+## rail head rather than on some average of where the engine happens to be.
+##
+## This exists because a consist is not a signpost.  A train is one thing *along*
+## the line and several things *across* it: each vehicle turns as it reaches a
+## curve, one after another, and each stands on the ground under its own wheels.
+## Asked for as a single call, the answer costs one walk of the path rather than
+## one per vehicle, which is what lets the renderer ask for it every frame.
+## Where a consist stands when it has no path to run: on its halt, hanging back along
+## the line it would arrive over.
+##
+## A train with no route — stock bought and waiting at a yard, or a consist whose line
+## was just pulled up — is looked at for as long as the player is looking at it, and
+## setting every vehicle down on the halt's own point is not a parked train but a pile
+## of locomotives.  So the cells beyond the halt are walked over the real rails, as far
+## as the whole consist needs: straight on where the line is straight, turning only
+## where the line itself turns.  Where there is nowhere to stand — a yard with no rail
+## at all — the vehicles are left together, which is the honest answer to a question
+## about a yard that is not a yard.
+func _standing_frames(station_id: int, offsets: Array[float]) -> Array:
+	var frames := []
+	frames.resize(offsets.size())
+	var berth := _stations.berth_tile(station_id)
+	var wanted := 0.0
+	for order in offsets.size():
+		wanted = maxf(wanted, float(offsets[order]))
+	var line := _halt_line(berth, wanted)
+	if line.size() < 2:
+		var parked := WorldCoords.tile_to_world_xz(berth)
+		var parked_run := _stations.run_direction(berth)
+		if parked_run == Vector2.ZERO:
+			parked_run = Vector2.RIGHT
+		for order in offsets.size():
+			frames[order] = {"at": parked, "direction": parked_run, "from_tile": berth,
+					"to_tile": berth, "t": 0.0, "step": 1.0}
+		return frames
+	var total := 0.0
+	for index in range(1, line.size()):
+		total += line[index - 1].distance_to(line[index])
+	# The walk runs from the tail of the train to its nose, so a vehicle half a tile
+	# behind the engine stands half a tile short of the end of it.
+	for order in offsets.size():
+		frames[order] = _frame_along(line, maxf(0.0, total - float(offsets[order])))
+	return frames
+
+
+## The stand a vehicle takes at a measured distance along a line of cell centres: the
+## point, the run it is riding and how far along that run it stands.  A distance past
+## the end of the line stands at the end of it, on the rails, rather than where the
+## ballast stopped.
+func _frame_along(line: PackedVector2Array, wanted: float) -> Dictionary:
+	var walked := 0.0
+	for index in range(1, line.size()):
+		var segment := line[index - 1].distance_to(line[index])
+		if walked + segment >= wanted or index == line.size() - 1:
+			var step := maxf(segment, 0.0001)
+			return _frame_between(line[index - 1], line[index],
+					clampf((wanted - walked) / step, 0.0, 1.0), step)
+		walked += segment
+	return _frame_between(line[0], line[0], 0.0, 1.0)
+
+
+## The cells a standing consist stands on, as points from the tail of the train to its
+## halt.  The wagons hang on the side of the halt that leads back into the network —
+## where a train coming in must have come from — and the walk turns with the line.
+func _halt_line(berth: Vector2i, length: float) -> PackedVector2Array:
+	var cells: Array[Vector2i] = [berth]
+	var stepped := _direction_of_first_step(berth)
+	var walked := 0.0
+	while walked < length + 1.0 and cells.size() < MAX_HALT_LINE_CELLS:
+		if stepped == Vector2i.ZERO:
+			break
+		var next: Vector2i = cells[cells.size() - 1] + stepped
+		if not _rail_linked(cells[cells.size() - 1], next):
+			break
+		cells.append(next)
+		walked += Vector2(stepped).length()
+		stepped = _continuation_of(cells[cells.size() - 2], cells[cells.size() - 1])
+	var points := PackedVector2Array()
+	for index in range(cells.size() - 1, -1, -1):
+		points.append(WorldCoords.tile_to_world_xz(cells[index]))
+	return points
+
+
+## The first step out of a halt: the arm of the yard's cell that leads back to the
+## rest of the line, so the wagons hang where a train arriving would have left them.
+func _direction_of_first_step(berth: Vector2i) -> Vector2i:
+	for direction in RailDirections.directions_in(_world.rail_mask_at(berth)):
+		var step: Vector2i = RailDirections.offset(direction)
+		if _rail_linked(berth, berth + step):
+			return step
+	return Vector2i.ZERO
+
+
+## Straight on where the rails run straight; turning only where they do not, and never
+## back over the cell the walk has just come from.
+func _continuation_of(previous: Vector2i, current: Vector2i) -> Vector2i:
+	var came: Vector2i = current - previous
+	if _rail_linked(current, current + came):
+		return came
+	for direction in RailDirections.directions_in(_world.rail_mask_at(current)):
+		var step: Vector2i = RailDirections.offset(direction)
+		if step == -came:
+			continue
+		if _rail_linked(current, current + step):
+			return step
+	return Vector2i.ZERO
+
+
+func _rail_linked(from_tile: Vector2i, to_tile: Vector2i) -> bool:
+	var difference := to_tile - from_tile
+	for direction in RailDirections.COUNT:
+		if RailDirections.offset(direction) != difference:
+			continue
+		if not RailDirections.has(_world.rail_mask_at(from_tile), direction):
+			return false
+		return RailDirections.has(_world.rail_mask_at(to_tile), RailDirections.opposite(direction))
+	return false
+
+
+static func _frame_between(from_point: Vector2, to_point: Vector2, t: float,
+		segment: float) -> Dictionary:
+	return {
+		"at": from_point.lerp(to_point, t),
+		"direction": (to_point - from_point).normalized(),
+		"from_tile": WorldCoords.world_to_tile_floor(from_point),
+		"to_tile": WorldCoords.world_to_tile_floor(to_point),
+		"t": t,
+		# How long this step is, in tiles: the run the height rises over, so a vehicle
+		# can be pitched to the grade it is standing on.
+		"step": segment,
+	}
+
+
+## How long a train is, coupler to coupler, in tiles.
+##
+## The figure a yard needs: a halt is placed so that the middle of the train
+## stands abreast the middle of the ground the yard bought, and that question has
+## a train in it.  A model is not a length, and the renderer is not where the
+## simulation should ask its questions, so the definitions carry it.
+func consist_length(train_id: int) -> float:
+	var instance := train(train_id)
+	if instance.is_empty():
+		return 0.0
+	var total := 0.0
+	var stock_ids: Array = stock_of(train_id)
+	for index in stock_ids.size():
+		if index > 0:
+			total += COUPLER_GAP_TILES
+		total += _vehicle_length(String(stock_ids[index]))
+	return total
+
+
+## Where each vehicle's origin sits behind the engine's front coupler, in tiles.
+##
+## The engine's own origin is half a length behind the point the simulation moves,
+## and each following vehicle half its own length beyond the coupler of the one
+## ahead of it, the slack of the coupling between.  The picture asks for this every
+## frame and a halt asks for it once per route; both have to mean the same train.
+func consist_offsets(train_id: int) -> Array[float]:
+	var offsets: Array[float] = []
+	var instance := train(train_id)
+	if instance.is_empty():
+		return offsets
+	var behind := 0.0
+	var stock_ids: Array = stock_of(train_id)
+	for index in stock_ids.size():
+		var length := _vehicle_length(String(stock_ids[index]))
+		if index == 0:
+			behind = length * 0.5
+		else:
+			behind += _vehicle_length(String(stock_ids[index - 1])) * 0.5 \
+					+ COUPLER_GAP_TILES + length * 0.5
+		offsets.append(behind)
+	return offsets
+
+
+## Half a consist: how far past a yard's marker a train has to stand for its
+## middle to be on the marker.  A route measures its halts with this.
+func _halt_set_back_for(train_id: int) -> float:
+	return consist_length(train_id) * 0.5
+
+
+func _vehicle_length(stock_id: String) -> float:
+	var definition := _registry.stock(stock_id)
+	if definition == null or definition.length_tiles <= 0.0:
+		return 0.75
+	return definition.length_tiles
+
+
+func consist_frames(train_id: int, offsets: Array[float]) -> Array:
+	var instance := train(train_id)
+	if instance.is_empty():
+		return []
+	var path: PackedVector2Array = instance["path"]
+	if path.size() < 2:
+		return _standing_frames(int(instance["station"]), offsets)
+	var total := float(instance["path_length"])
+	if total <= 0.0:
+		total = _path_length(path)
+	var progress := float(instance["progress"])
+	# The path is a loop, so a vehicle can be behind the engine by wrapping past
+	# the start; and the wrapped distances are not monotone, which is why the
+	# offsets are sorted before the single forward walk instead of consumed in the
+	# order they were asked for.
+	var wanted := []
+	for order in offsets.size():
+		var behind := fmod(float(offsets[order]), total)
+		wanted.append({"distance": fmod(fmod(progress - behind, total) + total, total), "order": order})
+	wanted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a["distance"]) < float(b["distance"]))
+	var frames := []
+	frames.resize(offsets.size())
+	var cursor := 0
+	var walked := 0.0
+	for index in range(1, path.size()):
+		var from_point: Vector2 = path[index - 1]
+		var to_point: Vector2 = path[index]
+		var segment := from_point.distance_to(to_point)
+		if segment <= 0.000001:
+			continue
+		while cursor < wanted.size() and float(wanted[cursor]["distance"]) <= walked + segment:
+			var t := clampf((float(wanted[cursor]["distance"]) - walked) / segment, 0.0, 1.0)
+			frames[int(wanted[cursor]["order"])] = {
+				"at": from_point.lerp(to_point, t),
+				"direction": (to_point - from_point).normalized(),
+				"from_tile": WorldCoords.world_to_tile_floor(from_point),
+				"to_tile": WorldCoords.world_to_tile_floor(to_point),
+				# The position along this cell-to-cell step, so the presentation can
+				# ask the rails how high the running surface is right here rather
+				# than guessing from the cell the body happens to be standing on.
+				"t": t,
+				# How long this step is, in tiles: the run the height rises over, so
+				# a vehicle can be pitched to the grade it is standing on.
+				"step": segment,
+			}
+			cursor += 1
+		walked += segment
+		if cursor >= wanted.size():
+			break
+	# Anything not placed sits on the last cell of the path -- the loop closed
+	# before it, which only happens when the path is shorter than the consist.
+	var tail := path[path.size() - 1]
+	while cursor < wanted.size():
+		frames[int(wanted[cursor]["order"])] = {
+			"at": tail,
+			"direction": (tail - path[path.size() - 2]).normalized(),
+			"from_tile": WorldCoords.world_to_tile_floor(path[path.size() - 2]),
+			"to_tile": WorldCoords.world_to_tile_floor(tail),
+			"t": 1.0,
+			"step": maxf(path[path.size() - 2].distance_to(tail), 0.0001),
+		}
+		cursor += 1
+	return frames
+
+
+## The direction a train's compass says it is going, in degrees.
+##
+## Deliberately softer than what a vehicle is drawn at: this samples half a tile
+## each side of the engine, so a corner reads as a swing rather than a snap.  That
+## is right for a panel and wrong for wheels -- the drawing asks `consist_frames`
+## for the run a vehicle is actually standing on.
 
 
 func heading(train_id: int) -> float:
@@ -423,7 +718,11 @@ func heading(train_id: int) -> float:
 	var delta := ahead - behind
 	if delta.length_squared() < 0.0001:
 		return float(instance.get("heading", 0.0))
-	return rad_to_deg(atan2(-delta.x, delta.y))
+	# Degrees of the yaw that points the model's +X (its nose, per the art
+	# library) along the way it is actually travelling.  Read straight off the tile
+	# grid the angle is 90° out, and a train drawn 90° out is a train "not following
+	# the rails" however correct its position is.
+	return WorldCoords.yaw_degrees_for_direction(delta)
 
 
 func speed_tiles_per_tick(train_id: int) -> float:
@@ -649,8 +948,8 @@ func _tick_moving(train_id: int) -> void:
 func _accelerate(train_id: int) -> float:
 	var instance: Dictionary = _trains[train_id]
 	var top := float(instance["max_speed"]) * _grade_factor(train_id)
-	var acceleration := _registry.train_setting("acceleration_per_tick", 0.06)
-	var braking := _registry.train_setting("braking_per_tick", 0.12)
+	var acceleration := _registry.train_setting("acceleration_per_tick", 0.0011)
+	var braking := _registry.train_setting("braking_per_tick", 0.0028)
 	var limit := top
 	var stop_ticks: PackedFloat64Array = instance["stop_ticks"]
 	var progress := float(instance["progress"])
@@ -661,7 +960,11 @@ func _accelerate(train_id: int) -> float:
 			break
 	var braking_distance := (float(instance["speed"]) * float(instance["speed"])) / (2.0 * braking)
 	if remaining_to_stop <= braking_distance:
-		limit = maxf(0.02, float(instance["speed"]) - braking)
+		# A train inside its braking distance bleeds speed, but never freezes just
+		# short of the marker: the floor is a tenth of its own top speed, so it
+		# creeps in at a crawl rather than a fixed absolute figure that would mean
+		# one thing to a shunter and quite another to an express.
+		limit = maxf(top * CREEP_FRACTION_OF_TOP, float(instance["speed"]) - braking)
 	instance["speed"] = clampf(float(instance["speed"]) + signf(top - float(instance["speed"])) * acceleration,
 		0.0, maxf(0.0, minf(top, limit if limit < float(instance["speed"]) else top)))
 	return float(instance["speed"])
@@ -670,7 +973,11 @@ func _accelerate(train_id: int) -> float:
 ## Steeper grades slow a train; a descent lets it run faster, up to the cap.
 func _tile_at(path: PackedVector2Array, distance: float) -> Vector2i:
 	var point := _point_at(path, distance)
-	return Vector2i(roundi(point.x), roundi(point.y))
+	# A path point is a lane centre, so the cell it belongs to is the one it falls
+	# inside -- `WorldCoords.world_to_tile_floor`, the same inverse every other
+	# reader of a position uses.  Rounding a centre to the nearest whole number
+	# would hand back the cell beyond it for the whole outer half of every tile.
+	return WorldCoords.world_to_tile_floor(point)
 
 
 ## The ceiling the consist is under right now, as a multiple of its rated speed:
@@ -891,30 +1198,31 @@ func _refresh_rating(train_id: int) -> void:
 
 
 func _reset_motion(instance: Dictionary) -> void:
-	var path: PackedVector2Array = instance["path"]
-	var length := 0.0
-	for index in range(1, path.size()):
-		length += path[index].distance_to(path[index - 1])
-	instance["path_length"] = length
+	instance["path_length"] = _path_length(instance["path"])
 	instance["speed"] = 0.0
 	instance["max_speed"] = top_speed_tiles_per_tick(int(instance["id"]))
 
 
 func _clamp_progress(instance: Dictionary) -> float:
-	var length := 0.0
-	var path: PackedVector2Array = instance["path"]
-	for index in range(1, path.size()):
-		length += path[index].distance_to(path[index - 1])
+	var length := _path_length(instance["path"])
 	instance["path_length"] = length
 	if length <= 0.0:
 		return 0.0
 	return fmod(float(instance.get("progress", 0.0)), length)
 
 
-func _point_at(path: PackedVector2Array, distance: float) -> Vector2:
-	var total := 0.0
+## How far the rails run, in tiles: straight steps of 1.0, diagonals of √2.  The
+## one definition of the length of a path, because a stop marker, an odometer and
+## a consist's own wheels all have to be measuring the same line.
+func _path_length(path: PackedVector2Array) -> float:
+	var length := 0.0
 	for index in range(1, path.size()):
-		total += path[index].distance_to(path[index - 1])
+		length += path[index].distance_to(path[index - 1])
+	return length
+
+
+func _point_at(path: PackedVector2Array, distance: float) -> Vector2:
+	var total := _path_length(path)
 	var wanted := fmod(maxf(0.0, distance), maxf(total, 0.000001))
 	if total <= 0.0:
 		return path[0] if path.size() > 0 else Vector2.ZERO

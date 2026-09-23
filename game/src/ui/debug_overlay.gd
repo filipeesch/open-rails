@@ -107,6 +107,11 @@ func _report() -> String:
 
 
 func _node_count() -> int:
+	# Ask first: a panel that has not been parented yet has no tree, and `get_tree()`
+	# reports that as an engine error on every call — red lines in a window for a
+	# question that has a plain answer of zero.
+	if not is_inside_tree():
+		return 0
 	var tree := get_tree()
 	if tree == null or tree.root == null:
 		return 0

@@ -79,6 +79,8 @@ class BuildContext:
         self.attachment_kinds: dict[str, str] = {}
         self.company_regions: dict[str, list[str]] = {}
         self.wheel_roles: dict[str, list[dict]] = {}
+        self.wheel_circumferences: dict[str, float] = {}
+        self.wheel_radii: dict[str, float] = {}
         self.extras: dict[str, object] = {}
         self.lod_overrides: dict[int, list] = {}
         self.anim = AnimationRegistry(self)
@@ -194,10 +196,18 @@ class BuildContext:
 
     # -- wheels (metadata for the manifest; geometry lives in primitives) --------
 
-    def register_wheel(self, obj, role: str, phase_deg: float = 0.0, side: str = "centre") -> None:
+    def register_wheel(self, obj, role: str, phase_deg: float = 0.0, side: str = "centre",
+                       radius: float = None) -> None:
         self.wheel_roles.setdefault(role, []).append(
             {"object": obj.name, "role": role,
              "phase_deg": round(float(phase_deg), 3), "side": side})
+        if radius is not None:
+            # The wheelbase is the asset's, not the runtime's to guess: a wheel
+            # that rolls one revolution per `moving` clip converts the train's
+            # travelled distance into a crank angle, and that conversion is the
+            # circumference.  Published here so the renderer measures nothing.
+            self.wheel_circumferences[role] = 2.0 * math.pi * float(radius)
+            self.wheel_radii[role] = float(radius)
 
     # -- LOD policy ----------------------------------------------------------------
 
@@ -256,6 +266,10 @@ class BuildContext:
             "company_regions": {k: sorted(v) for k, v in sorted(self.company_regions.items())},
             "wheel_phases": {role: sorted(entries, key=lambda e: e["object"])
                              for role, entries in sorted(self.wheel_roles.items())},
+            "wheel_circumference_tiles": {r: round(c, 6)
+                                          for r, c in sorted(self.wheel_circumferences.items())},
+            "wheel_radius_tiles": {r: round(v, 6)
+                                   for r, v in sorted(self.wheel_radii.items())},
             "lod_method_manual": sorted(str(k) for k in self.lod_overrides),
             "extras": self.extras,
             "cache_key": self.cache_key,

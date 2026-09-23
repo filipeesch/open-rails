@@ -59,3 +59,14 @@ Rolling stock assets SHALL render the company's primary and secondary colours us
 #### Scenario: Two liveries from one asset
 - **WHEN** two companies with different colours run the same locomotive model
 - **THEN** both render from the same generated model with different company colour parameters
+
+### Requirement: Rolling stock data names its length between couplers
+Each locomotive and wagon definition SHALL state the vehicle's length between its own couplers, in tiles, so that a consist's length is a figure the simulation owns; a definition that omits it SHALL fall back to a stated default rather than being dropped.
+
+#### Scenario: The halt knows how long the train is
+- **WHEN** a route measures how far up the line its train has to pull up
+- **THEN** the figure comes from the definitions of the vehicles in that consist and the slack between them
+
+#### Scenario: A missing length degrades rather than disappears
+- **WHEN** a definition ships without a length
+- **THEN** the vehicle is still registered and counted with the default length

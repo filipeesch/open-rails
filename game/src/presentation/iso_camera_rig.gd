@@ -16,6 +16,29 @@ const ZOOM_CLOSE := WorldConstants.CAMERA_ZOOM_CLOSE
 const ZOOM_DEFAULT := WorldConstants.CAMERA_ZOOM_DEFAULT
 const ZOOM_FAR := WorldConstants.CAMERA_ZOOM_FAR
 
+# --- the three presentation tiers, measured in tiles visible ----------------
+#
+# Tier selection is cut here because the rig owns the only distance question the
+# game asks: `ortho_size` is how many tiles fit down the screen, so a threshold
+# is a statement about how big a train looks, not about where an eye is standing.
+# Every consumer — entity bodies, labels, effects — asks `lod_for_tiles()` and
+# nothing else decides, so zooming out can never desync one layer from another.
+
+const LOD_NEAR := 0
+const LOD_MEDIUM := 1
+const LOD_FAR := 2
+
+## Fourteen tiles down the screen and a locomotive is a quarter of the picture:
+## every part the compiler left in LOD0 — rods, lamps, window frames — is still
+## several pixels wide, so drawing the part list is the honest answer.
+const LOD_NEAR_MAX_TILES := 14.0
+## The shipped working zoom is 28, so ordinary play sits in this band.  A consist
+## is a few dozen pixels long here: LOD1's single merged body carries the whole
+## shape and LOD0's twenty-odd separate drawables buy nothing a player can see.
+## Past this bound is the overview the zoom-out key runs to (96 tiles), where only
+## the silhouette reads — LOD2, no labels, no particles.
+const LOD_MEDIUM_MAX_TILES := 44.0
+
 const PAN_SMOOTHING := 12.0
 const ZOOM_SMOOTHING := 9.0
 const YAW_SMOOTHING := 8.0
@@ -203,6 +226,11 @@ func set_zoom(tiles_visible: float, anchor: Vector2 = Vector2.INF, viewport_rect
 	_clamp_target()
 
 
+## Turn the zoom handle by `steps` wheel notches.  The argument is stated in the
+## rig's own unit, so a positive `steps` *widens* the view — more of the valley in
+## frame, ground shrinking — and a negative one brings the ground closer.  Input
+## handlers that mean "closer" pass a negative number; `zoom_in` is the name to
+## reach for when there is no wheel-notch arithmetic to keep.
 func zoom_by(steps: float, anchor: Vector2 = Vector2.INF, viewport_rect: Rect2 = Rect2()) -> void:
 	var factor := exp(steps * ZOOM_WHEEL_STEP)
 	set_zoom(desired_ortho_size * factor, anchor, viewport_rect)
@@ -242,12 +270,19 @@ func orthographic_tiles() -> float:
 	return ortho_size
 
 
+## Which tier a given zoom asks for.  Static because the answer depends on the
+## commanded size alone, never on a rig instance: a renderer that has not been
+## given a rig yet can still resolve a zoom against the same numbers.
+static func lod_for_tiles(tiles_visible: float) -> int:
+	if tiles_visible <= LOD_NEAR_MAX_TILES:
+		return LOD_NEAR
+	if tiles_visible <= LOD_MEDIUM_MAX_TILES:
+		return LOD_MEDIUM
+	return LOD_FAR
+
+
 func lod_level() -> int:
-	if ortho_size <= 14.0:
-		return 0
-	if ortho_size <= 44.0:
-		return 1
-	return 2
+	return lod_for_tiles(ortho_size)
 
 
 func tile_to_world(tile: Vector2) -> Vector3:
@@ -265,9 +300,22 @@ func _height_at(point: Vector2) -> float:
 	return world.elevation_at(tile)
 
 
+## Where a world point lands on screen, in **pixels local to `viewport_rect`** —
+## the unit every drawing layer works in, because a `Control` is positioned in
+## pixels.  Points outside the rectangle return coordinates outside `0..size`,
+## which is exactly how a caller decides that a place is offscreen: the numbers
+## are pixel distances, so `screen.x > size.x` means "over the right edge", not
+## "1.4 of a viewport away".
+##
+## A point behind the camera has no position on screen, and returns `Vector2.INF`
+## rather than a mirrored lie: an orthographic camera still projects it, to the
+## wrong side of the view, and a label placed there would name a place the player
+## cannot see.  Callers test for it with `is_finite()`.
 func world_to_screen(point: Vector3, viewport_rect: Rect2) -> Vector2:
 	if viewport_rect.size.x <= 0.0 or viewport_rect.size.y <= 0.0:
 		return Vector2.ZERO
+	if _behind_view(point):
+		return Vector2.INF
 	# In a scene the camera's own matrix is authoritative; out of one — a headless
 	# test, an offscreen pass — the identical arithmetic takes over, so the rig
 	# can be measured instead of only looked at.
@@ -276,8 +324,30 @@ func world_to_screen(point: Vector3, viewport_rect: Rect2) -> Vector2:
 		pixels = camera.unproject_position(point)
 	else:
 		pixels = project_point(point, viewport_rect)
-	return Vector2((pixels.x - viewport_rect.position.x) / viewport_rect.size.x,
-		(pixels.y - viewport_rect.position.y) / viewport_rect.size.y)
+	return Vector2(pixels.x - viewport_rect.position.x, pixels.y - viewport_rect.position.y)
+
+
+## Whether a world point stands behind the lens.  A camera looks down its own -Z,
+## so a positive depth measured along its backward axis is behind it — and Godot
+## exposes no `is_point_behind_camera` on `Camera3D` to be asked instead.  The rig's
+## own transform answers, which is what lets the headless branch below make exactly
+## the same promise as the live one.
+func _behind_view(point: Vector3) -> bool:
+	var view := view_transform()
+	return view.basis.z.dot(point - view.origin) > 0.0
+
+
+## The same position as a fraction of the viewport: `(0.5, 0.5)` is the middle of
+## the frame, and a value outside `0..1` is offscreen.  This is what a hit test
+## wants when it compares a pick radius in viewport terms; a thing that *draws*
+## wants `world_to_screen`.
+func viewport_fraction(point: Vector3, viewport_rect: Rect2) -> Vector2:
+	if viewport_rect.size.x <= 0.0 or viewport_rect.size.y <= 0.0:
+		return Vector2.ZERO
+	var local := world_to_screen(point, viewport_rect)
+	if not is_finite(local.x) or not is_finite(local.y):
+		return local
+	return Vector2(local.x / viewport_rect.size.x, local.y / viewport_rect.size.y)
 
 
 ## Pixel position of a world point inside `viewport_rect`, the exact inverse of

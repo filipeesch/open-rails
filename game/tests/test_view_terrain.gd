@@ -116,21 +116,121 @@ func test_water_is_one_surface_holding_no_physics() -> void:
 				water_tiles += 1
 	check_gt(float(water_tiles), 100.0, "the shipped map has a river and lakes to draw")
 	check_eq(_view.renderer.water_quads(), water_tiles,
-		"the water surface is one quad per water cell, in a single mesh")
-	var surfaces := _nodes_named(_view.host, "WaterSurface")
-	check_eq(surfaces.size(), 1, "one water node for every lake and river on the map")
-	var lake: MeshInstance3D = surfaces[0]
-	check_eq(lake.mesh.get_surface_count(), 1, "and one surface inside it")
+		"the water surface is one quad per water cell")
+	var bodies := _nodes_named(_view.host, "WaterBody_0")
+	check_eq(bodies.size(), 1, "every surface under one root, named by its body")
+	for node in _view.renderer.water_body_nodes():
+		check_eq(node.mesh.get_surface_count(), 1, "%s draws one surface" % node.name)
 	check_eq(TestView.count_physics_objects(_view.host), 0,
 		"nothing in the world layer registers with physics: selection is a ray march")
+
+
+func test_the_river_and_the_lake_are_separate_surfaces() -> void:
+	_view = TestView.stage()
+	var renderer := _view.renderer
+	var tiles := renderer.water_quads()
+	check_gt(float(renderer.water_body_count()), 1.0,
+		"the valley's water is not one sheet: the flood fill found %d bodies" % renderer.water_body_count())
+	check_lt(float(renderer.water_body_count()), float(tiles) / 50.0,
+		"a body per run of water, not a node per tile (%d nodes, %d cells)" % [
+				renderer.water_body_count(), tiles])
+	var total := 0
+	for node in renderer.water_body_nodes():
+		check_true(node.mesh != null, "every body carries a mesh")
+		total += int(node.get_meta("quads", 0))
+	check_eq(total, tiles, "and between them they hold every water cell once")
+
+
+## A body is whatever the water says it is, not whatever a test guessed.  Two
+## ponds are two surfaces; fill the channel and they are one.
+func test_a_surface_is_a_body_of_water_not_a_fixed_grid_of_cells() -> void:
+	var grid := TestWorldFactory.blank(48, 48)
+	for y in range(8, 14):
+		for x in range(6, 12):
+			grid.set_terrain(Vector2i(x, y), WorldGrid.Terrain.WATER)
+	for y in range(8, 14):
+		for x in range(24, 30):
+			grid.set_terrain(Vector2i(x, y), WorldGrid.Terrain.WATER)
+	_view = TestView.stage_grid(grid)
+	var renderer := _view.renderer
+	check_eq(renderer.water_body_count(), 2, "two ponds, two surfaces")
+	var west := renderer.water_body_at(Vector2i(8, 10))
+	var east := renderer.water_body_at(Vector2i(26, 10))
+	check_true(west != null and east != null, "each pond can be pointed at")
+	check_neq(west, east, "and they are different surfaces")
+	check_eq(renderer.water_body_at(Vector2i(40, 40)), null, "dry ground belongs to neither")
+
+	for x in range(12, 24):
+		grid.set_terrain(Vector2i(x, 10), WorldGrid.Terrain.WATER)
+	renderer.force_full_rebuild()
+	check_eq(renderer.water_body_count(), 1, "fill the channel and it is one lake")
+	check_eq(renderer.water_body_at(Vector2i(8, 10)), renderer.water_body_at(Vector2i(26, 10)),
+		"and both ends now name the same surface")
+
+
+func test_the_water_moves_and_the_movement_stays_small() -> void:
+	_view = TestView.stage()
+	var renderer := _view.renderer
+	var bodies := renderer.water_body_nodes()
+	check_gt(bodies.size(), 0, "there is water to watch")
+	renderer.view_source = func() -> Vector3: return bodies[0].position
+	var heights: Array[float] = []
+	for step in 40:
+		renderer.tick(0.05)
+		heights.append(bodies[0].position.y)
+	check_eq(renderer.water_animated_last_tick(), bodies.size(),
+			"with the view on it, every body was moved")
+	var spread := 0.0
+	for first in heights.size():
+		for second in range(first + 1, heights.size()):
+			spread = maxf(spread, absf(heights[first] - heights[second]))
+	check_gt(spread, renderer.WATER_BOB_AMPLITUDE * 0.8,
+			"the surface visibly moves: %.3f of travel" % spread)
+	check_le(spread, renderer.WATER_BOB_AMPLITUDE * 2.0 + 0.001,
+			"and it stays where it was built: %.3f at most" % spread)
+
+
+func test_water_the_player_cannot_see_is_left_completely_alone() -> void:
+	_view = TestView.stage()
+	var renderer := _view.renderer
+	var bodies := renderer.water_body_nodes()
+	var still: Array[float] = []
+	for node in bodies:
+		still.append(node.position.y)
+	renderer.view_source = func() -> Vector3: return Vector3(9000.0, 0.0, 9000.0)
+	for step in 30:
+		renderer.tick(0.05)
+	check_eq(renderer.water_animated_last_tick(), 0,
+			"nothing was written for water that is 9000 tiles away")
+	for index in bodies.size():
+		check_near(bodies[index].position.y, still[index],
+				"surface %d never moved" % index, 0.000001)
+	check_eq(renderer.water_body_count(), bodies.size(), "the water is still there, just idle")
+
+
+func test_animating_the_water_simulates_nothing() -> void:
+	_view = TestView.stage()
+	var renderer := _view.renderer
+	var before_terrain := _view.grid().terrain.duplicate()
+	var before_ticks := _view.session.clock.tick_count
+	var before_rebuilds := renderer.rebuild_count()
+	renderer.view_source = func() -> Vector3: return Vector3(128.0, 0.0, 128.0)
+	for step in 120:
+		renderer.tick(0.016)
+	check_eq(_view.session.clock.tick_count, before_ticks,
+			"three seconds of frames advanced no simulation time at all")
+	check_true(_view.grid().terrain == before_terrain,
+			"and the water never wrote back to the world it draws")
+	check_eq(renderer.rebuild_count(), before_rebuilds,
+			"moving a surface is a transform, not a geometry rebuild")
 
 
 func test_hiding_the_water_surface_changes_nothing_the_simulation_does() -> void:
 	var shown := TestView.stage()
 	var hidden := TestView.stage()
-	hidden.renderer.water_mesh_source.visible = false
-	check_false(hidden.renderer.water_mesh_source.visible, "the water is hidden")
-	check_true(shown.renderer.water_mesh_source.visible, "the other run shows it")
+	hidden.renderer.water_bodies_root.visible = false
+	check_false(hidden.renderer.water_bodies_root.visible, "the water is hidden")
+	check_true(shown.renderer.water_bodies_root.visible, "the other run shows it")
 	var left_line := TestSession.coal_line(shown.session)
 	var right_line := TestSession.coal_line(hidden.session)
 	check_true(bool(left_line["ok"]), "the left run has a working coal line to simulate")

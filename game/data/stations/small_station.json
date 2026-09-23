@@ -7,6 +7,6 @@
   "catchment_tiles": 4.0,
   "storage_per_cargo": 120,
   "requires_straight_rail": true,
-  "rail_search_radius": 2,
+  "rail_search_radius": 1,
   "description": "One platform, one office, a small goods shed. Everything a line needs to start earning."
 }

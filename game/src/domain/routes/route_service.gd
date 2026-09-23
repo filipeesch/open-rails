@@ -19,6 +19,10 @@ var _rail: RailService
 var _stations: StationService
 var _ids: IdFactory
 var _next_leg := {}
+## Who tells a route how far its train has to pull up past a stop's marker —
+## see `_set_halts_on_the_deck`.  The trains own that figure.
+var _halt_set_back_of: Callable = Callable()
+
 
 
 func configure(rail: RailService, stations: StationService, ids: IdFactory) -> void:
@@ -197,6 +201,38 @@ func unload_options(route_id: int, stop_index: int) -> Array[Dictionary]:
 # --- path -----------------------------------------------------------------
 
 ## Rebuild the tile path.  Called on edit and whenever the track changes.
+##
+## A point on the path is the **centre of the rail lane** through a cell, in the
+## same tile-space units the world is drawn in -- `WorldCoords.tile_to_world_xz`,
+## the one place the centre convention lives.  It used to be the cell's integer
+## corner, and nothing downstream could tell: distances along the path are
+## differences, so a uniform half-tile shift left every stop marker, every
+## length and every fare exactly right, while the only thing that read the
+## numbers as a *position* -- the drawing -- put every train half a tile off the
+## rails it was running on.  Distances are unchanged by this; only where a
+## position means is fixed.
+## Let a route ask the trains how long the train flying it is, in half-consists.
+## A domain without trains — a preview, a bare route test — never calls this, and
+## every halt then stays on the marker the legs meet at.
+func set_halt_set_back_provider(provider: Callable) -> void:
+	_halt_set_back_of = provider
+
+
+## Re-measure every route.  A halt is measured in trains — half the consist pulled up
+## the line — and a route that was rebuilt before its train was restored has had to
+## guess that figure as nothing.  A save is loaded in one order and the domain is
+## restored in another, so the halts are taken again once everything is back.
+func recompute_all() -> void:
+	for route_id in _order:
+		recompute_path(route_id)
+
+
+func _halt_set_back_for(train_id: int) -> float:
+	if _halt_set_back_of.is_null() or not _halt_set_back_of.is_valid():
+		return 0.0
+	return maxf(0.0, float(_halt_set_back_of.call(train_id)))
+
+
 func recompute_path(route_id: int) -> Dictionary:
 	var instance := route(route_id)
 	if instance.is_empty():
@@ -204,12 +240,24 @@ func recompute_path(route_id: int) -> Dictionary:
 	var stop_list: Array = instance["stops"]
 	var path := PackedVector2Array()
 	var stop_ticks := PackedFloat64Array()
+	# Which vertex each stop's marker falls on, and the cell that stop stands
+	# on.  The halt pass needs both; guessing them back out of distances is
+	# how a marker ends up standing a cell from its yard.
+	var stop_vertices: Array[int] = []
+	var stop_tiles: Array[Vector2i] = []
 	var total := 0.0
-	var first_tile := _stations.rail_access_tile(int(stop_list[0]["station_id"]))
+	# A leg runs between the cells the trains stand on at each yard -- the berths --
+	# and not between the cells the yards couple to.  Those are different cells
+	# wherever a yard's frontage is longer than the straight stretch beside it, and
+	# building the leg to the coupling cell stopped every train a whole platform short
+	# of the deck it had come to serve.
+	var first_tile := _stations.berth_tile(int(stop_list[0]["station_id"]))
 	if not _rail.network.has_rail(first_tile):
 		return _fail(route_id, "First stop has no rail access")
-	path.append(Vector2(first_tile))
+	path.append(WorldCoords.tile_to_world_xz(first_tile))
 	stop_ticks.append(0.0)
+	stop_vertices.append(0)
+	stop_tiles.append(first_tile)
 	# Distances are measured along the path the same way a train measures its own
 	# progress — straight steps of 1.0, diagonals of √2.  Counting tiles instead
 	# would put every stop marker short of where the train actually arrives.
@@ -219,8 +267,8 @@ func recompute_path(route_id: int) -> Dictionary:
 			cursor += points[step].distance_to(points[step - 1])
 		return cursor
 	for index in range(1, stop_list.size()):
-		var from_tile := _stations.rail_access_tile(int(stop_list[index - 1]["station_id"]))
-		var to_tile := _stations.rail_access_tile(int(stop_list[index]["station_id"]))
+		var from_tile := _stations.berth_tile(int(stop_list[index - 1]["station_id"]))
+		var to_tile := _stations.berth_tile(int(stop_list[index]["station_id"]))
 		var leg: Array[Vector2i] = _rail.find_path(from_tile, to_tile)
 		if leg.is_empty():
 			return _fail(route_id, "%s is not reachable from %s" % [
@@ -228,21 +276,41 @@ func recompute_path(route_id: int) -> Dictionary:
 				_stations.name_of(int(stop_list[index - 1]["station_id"]))])
 		var leg_first := path.size()
 		for step in range(1, leg.size()):
-			path.append(Vector2(leg[step]))
+			path.append(WorldCoords.tile_to_world_xz(leg[step]))
 		total = walk.call(path, leg_first, total)
 		stop_ticks.append(total)
+		stop_vertices.append(path.size() - 1)
+		stop_tiles.append(to_tile)
 	# Return leg closes the loop back to the first stop.
-	var last_tile := _stations.rail_access_tile(int(stop_list[stop_list.size() - 1]["station_id"]))
+	var last_tile := _stations.berth_tile(int(stop_list[stop_list.size() - 1]["station_id"]))
 	var back: Array[Vector2i] = _rail.find_path(last_tile, first_tile)
 	var is_circular := not back.is_empty() and stop_list.size() > 1
 	if is_circular:
 		var back_first := path.size()
 		for step in range(1, back.size()):
-			path.append(Vector2(back[step]))
+			path.append(WorldCoords.tile_to_world_xz(back[step]))
 		total = walk.call(path, back_first, total)
 		# The way home is a stop too: without a marker at the close of the loop
 		# a train would never arrive back at its first station.
 		stop_ticks.append(total)
+		stop_vertices.append(path.size() - 1)
+		stop_tiles.append(first_tile)
+	# A halt is where a train stops, and a train is not a point: the halt is pulled
+	# along the line by half a consist, and the markers re-walked over the line as
+	# it now runs.
+	path = _set_halts_on_the_deck(path, stop_vertices, stop_tiles,
+			_halt_set_back_for(int(instance.get("train_id", 0))))
+	stop_ticks = PackedFloat64Array()
+	var walked := 0.0
+	var mark := 0
+	for index in path.size():
+		if index > 0:
+			walked += path[index].distance_to(path[index - 1])
+		while mark < stop_vertices.size() and int(stop_vertices[mark]) == index:
+			stop_ticks.append(walked)
+			mark += 1
+	total = walked
+
 	instance["path"] = path
 	instance["stop_ticks"] = stop_ticks
 	instance["length_tiles"] = total
@@ -251,6 +319,133 @@ func recompute_path(route_id: int) -> Dictionary:
 	instance["circular"] = is_circular
 	route_changed.emit(route_id)
 	return {"ok": true, "reason": "", "id": route_id, "length_tiles": total}
+
+
+## Pull every turnaround halt along the line by half a consist, so that a train
+## stops with its middle on the yard's marker rather than its coupler alone.
+##
+## A yard is a length of deck, and the traffic is in the middle of the train that
+## stands beside it.  Held to the marker, the engine's nose is on the stop and every
+## wagon hangs back along the approach, off the deck it came to serve: the train
+## arrives at the yard's boundary instead of at the yard.
+##
+## Only a stop the train turns round at can be moved this way.  Where a line carries
+## on past the yard, the halt has to stay on the vertex the two legs meet at, or a
+## train would be stopped on a point it runs over rather than at — V1's single-track
+## valley turns round at every yard, so in it this is every halt.  And the rails
+## ahead of the engine bound the pull: at the end of a branch, a wharf or a mine,
+## the line itself stops and the train stops with it, lying as far alongside as the
+## ballast reaches rather than exactly where it would have liked to.
+func _set_halts_on_the_deck(path: PackedVector2Array, stop_vertices: Array[int],
+		stop_tiles: Array[Vector2i], set_back: float) -> PackedVector2Array:
+	if set_back <= 0.0 or path.size() < 3 or stop_vertices.size() < 2:
+		return path
+	var arrivals: Array[Vector2] = []
+	var pulls: Array[float] = []
+	for order in stop_vertices.size():
+		var arrival := _arrival_at(path, int(stop_vertices[order]))
+		arrivals.append(arrival)
+		var pull := 0.0
+		if arrival != Vector2.INF and _turns_round_at(path, int(stop_vertices[order]), arrival):
+			pull = _room_ahead(stop_tiles[order], arrival, set_back)
+		pulls.append(pull)
+	# The first stop is arrived at twice: at the end of the loop, and again as the
+	# loop begins.  Where the loop closes on it by turning round, its halt is set at
+	# the head of the path as well as the foot, so a train running out again leaves
+	# the halt itself rather than jumping back to the marker.
+	var last := stop_vertices.size() - 1
+	var closes_first := arrivals[last] != Vector2.INF and float(pulls[last]) > 0.001 \
+			and stop_tiles[0] == stop_tiles[last]
+	var laid := PackedVector2Array()
+	if closes_first:
+		laid.append(path[int(stop_vertices[0])] + arrivals[last] * float(pulls[last]))
+	var marks: Array[int] = []
+	for _order in stop_vertices.size():
+		marks.append(-1)
+	for index in path.size():
+		laid.append(path[index])
+		var order := _order_at(stop_vertices, index)
+		if order < 0:
+			continue
+		marks[order] = laid.size() - 1
+		if float(pulls[order]) <= 0.001:
+			continue
+		laid.append(path[index] + arrivals[order] * float(pulls[order]))
+		marks[order] = laid.size() - 1
+	if closes_first:
+		marks[0] = 0
+	for mark in marks:
+		if int(mark) < 0:
+			return path
+	stop_vertices.clear()
+	for mark in marks:
+		stop_vertices.append(int(mark))
+	return laid
+
+
+## The direction of travel as a train reaches a stop's vertex.  The first vertex
+## has no arrival of its own — a route starts there, and anything coming back to it
+## arrives along the last leg — so it reports none.
+func _arrival_at(path: PackedVector2Array, vertex: int) -> Vector2:
+	if vertex <= 0 or vertex >= path.size():
+		return Vector2.INF
+	var arrival: Vector2 = path[vertex] - path[vertex - 1]
+	if arrival.length_squared() <= 0.000001:
+		return Vector2.INF
+	return arrival.normalized()
+
+
+## Whether the train goes back the way it came at this vertex.  The route's last
+## vertex looks forward to where the loop starts again.
+func _turns_round_at(path: PackedVector2Array, vertex: int, arrival: Vector2) -> bool:
+	var onward := Vector2.INF
+	if vertex + 1 < path.size():
+		onward = path[vertex + 1] - path[vertex]
+	elif path.size() > 2:
+		onward = path[1] - path[0]
+	if onward == Vector2.INF or onward.length_squared() <= 0.000001:
+		return false
+	return onward.normalized().dot(arrival) < -0.9
+
+
+## How far the line runs on past a stop's cell in a direction, in tiles.  A halt may
+## be pulled this far and no further: past here there is no rail to stand on.
+func _room_ahead(tile: Vector2i, arrival: Vector2, wanted: float) -> float:
+	var step := _bearing_towards(arrival)
+	if step < 0:
+		return 0.0
+	var offset := RailDirections.offset(step)
+	var room := 0.0
+	var current := tile
+	while room < wanted:
+		var next: Vector2i = current + offset
+		if not _rail.network.connected_tiles(current).has(next):
+			break
+		room += RailDirections.cost(step)
+		current = next
+	return minf(wanted, room)
+
+
+## The rail direction a step of the line lies closest to.  A halt is pulled along a
+## straight, so the bearing is taken once and kept: a halt that bends round a corner
+## would stand the train across the rails it is supposed to be riding.
+func _bearing_towards(direction: Vector2) -> int:
+	var best := -1
+	var best_dot := 0.75
+	for index in RailDirections.COUNT:
+		var against := Vector2(RailDirections.offset(index)).normalized().dot(direction)
+		if against > best_dot:
+			best_dot = against
+			best = index
+	return best
+
+
+## Which stop, if any, has its marker on this vertex.
+func _order_at(stop_vertices: Array[int], vertex: int) -> int:
+	for order in stop_vertices.size():
+		if int(stop_vertices[order]) == vertex:
+			return order
+	return -1
 
 
 func path_of(route_id: int) -> PackedVector2Array:

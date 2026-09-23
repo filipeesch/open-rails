@@ -29,7 +29,7 @@ See `add-game-shell-and-persistence/proposal.md` for motivation. All domain serv
 
 **`Ctrl+K` palette is a modal overlay reading a command registry** contributed to by each subsystem, so palette entries cannot drift from the actions they trigger.
 
-**LOD and animation LOD are driven by the camera's orthographic size** as the single distance proxy, plus per-train distance-to-camera bucketing for animation rate, with offscreen trains suspending visual updates through `VisibleOnScreenNotifier3D`. Per-object distance queries every frame were rejected as an O(entities) cost.
+**LOD and animation LOD are driven by the camera's orthographic size** as the single distance proxy, plus per-train distance-to-camera bucketing for animation rate, with offscreen trains suspending visual updates through a projection test in the rig itself (`_is_framed` in `entity_renderer.gd`): each train is projected through the camera and held visible only while it sits in the frustum or a padded screen rectangle. `VisibleOnScreenNotifier3D` was rejected — under an orthographic isometric rig its AABB test is useless for a low, wide consist, which reads as onscreen from angles that show none of it. Per-object distance queries every frame were rejected as an O(entities) cost.
 
 **The debug overlay reads Godot `Performance` monitors plus our own service counters** (terrain chunk rebuilds, rail chunk rebuilds, pathfinding time, tick time) rather than a profiler, so numbers are available in a normal dev build.
 

@@ -11,6 +11,10 @@ out/
 # Generated asset output — rebuilt by `rr.py art build`, never hand-edited.
 game/generated/
 
+# Python bytecode from the Blender-side asset compiler
+__pycache__/
+*.pyc
+
 # Engine / editor caches
 .godot/
 *.import

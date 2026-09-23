@@ -23,6 +23,28 @@ class AnimationError(RuntimeError):
     pass
 
 
+# Godot's glTF importer reads two playback hints out of a clip's NAME: a source
+# animation that starts or ends with the token `loop` or `cycle` is imported with
+# the loop flag set, and the token is stripped from the name the clip is stored
+# under.  An action authored as `run_cycle` therefore arrives in the engine as
+# `run`.  The manifest is the only place the runtime is allowed to look up a clip
+# name, and the compiler cannot observe the rename from inside Blender, so the one
+# rule that keeps the promise true is: do not mint a name the importer rewrites.
+# This library authors looping with cyclic keyframes and LINEAR interpolation, so
+# the hint buys nothing here and costs a lie in the manifest.
+ENGINE_PLAYBACK_TOKENS = ("loop", "cycle")
+
+
+def engine_visible_name(name: str) -> str:
+    """The name Godot files an imported clip under, from the Blender action name."""
+    parts = name.split("_")
+    if len(parts) > 1 and parts[0] in ENGINE_PLAYBACK_TOKENS:
+        parts.pop(0)
+    elif len(parts) > 1 and parts[-1] in ENGINE_PLAYBACK_TOKENS:
+        parts.pop()
+    return "_".join(parts)
+
+
 class AnimationRegistry:
     def __init__(self, ctx):
         self.ctx = ctx
@@ -37,6 +59,13 @@ class AnimationRegistry:
         """Create/retrieve a named action; returns the bpy Action."""
         if name in self.actions:
             return self.actions[name]
+        visible = engine_visible_name(name)
+        if visible != name:
+            raise AnimationError(
+                f"action {name!r} carries a playback token the engine consumes at "
+                f"import: the clip would arrive named {visible!r} and the published "
+                "animation_states map would point at nothing.  Author the loop with "
+                "cyclic keyframes and name it without the token.")
         action = bu.new_action(name)
         self.actions[name] = action
         if loop_frames:

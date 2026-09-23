@@ -40,10 +40,11 @@ func rebuild_pending() -> void:
 # --- 4.1 connection mask selects the pieces ------------------------------------
 
 func test_connection_masks_select_their_pieces() -> void:
-	# The renderer has no piece-id table: its piece vocabulary is one half-track
-	# per connection endpoint (ballast + sleepers + rails = 10 triangles).  The
-	# connection mask is the only selector, so each representative mask below
-	# must yield exactly its endpoint count.
+	# What the mask selects, measured in geometry rather than in names: a piece is
+	# one half-track per connection endpoint (ballast + sleepers + rails = 10
+	# triangles), so each representative mask below must yield exactly its endpoint
+	# count.  The names the same masks produce are pinned by
+	# `test_the_piece_table_names_every_shape_a_mask_can_make` below.
 	var base_triangles := TestConstruction.chunk_triangles(renderer, CHUNK)
 	# Straight: two opposite bits (E|W).
 	var straight := TestConstruction.east_run(Vector2i(4, 4), 2)
@@ -109,6 +110,101 @@ func test_committed_line_draws_both_halves_of_every_connection() -> void:
 	check_true(TestConstruction.has_vertex(verts, 6.5, 0.02, 0.001) \
 		and TestConstruction.has_vertex(verts, 8.5, 0.02, 0.001),
 		"both far ends of the line carry their own ballast start, not just one")
+
+
+func test_the_piece_table_names_every_shape_a_mask_can_make() -> void:
+	# Representative masks, one per shape §36 lists, plus the two cases the list
+	# left implicit: a line has to stop somewhere, and a cell with no arms is not
+	# track.  These are the answers a human reading the mask should agree with.
+	var north := RailDirections.bit(RailDirections.N)
+	var east := RailDirections.bit(RailDirections.E)
+	var south := RailDirections.bit(RailDirections.S)
+	var west := RailDirections.bit(RailDirections.W)
+	var north_east := RailDirections.bit(RailDirections.NE)
+	var north_west := RailDirections.bit(RailDirections.NW)
+	var south_east := RailDirections.bit(RailDirections.SE)
+	var south_west := RailDirections.bit(RailDirections.SW)
+
+	check_eq(TrackPieces.piece_for(east | west), TrackPieces.STRAIGHT, "east and west is a straight")
+	check_eq(TrackPieces.piece_for(north | south), TrackPieces.STRAIGHT, "and so is north and south")
+	check_eq(TrackPieces.piece_for(north_east | south_west), TrackPieces.DIAGONAL,
+			"diagonal arms running through each other are a diagonal")
+	check_eq(TrackPieces.piece_for(north_west | south_east), TrackPieces.DIAGONAL,
+			"the other diagonal reads the same way")
+	check_eq(TrackPieces.piece_for(west | north_east), TrackPieces.CURVE_45,
+			"one compass point off a straight is a 45 degree curve")
+	check_eq(TrackPieces.piece_for(south | east), TrackPieces.CURVE_90,
+			"a corner between two cardinals is a 90 degree curve")
+	check_eq(TrackPieces.piece_for(north | east), TrackPieces.CURVE_90,
+			"whichever corner it is")
+	check_eq(TrackPieces.piece_for(north | north_east), TrackPieces.CURVE_90,
+			"and a hook, bending 135 degrees, takes the sharpest piece there is")
+	check_eq(TrackPieces.piece_for(north | south | east), TrackPieces.JUNCTION,
+			"three arms is a junction whatever the angles")
+	check_eq(TrackPieces.piece_for(north | east | south | west), TrackPieces.JUNCTION,
+			"and four arms is one too")
+	check_eq(TrackPieces.piece_for(east), TrackPieces.END,
+			"a single arm is where the line stops")
+	check_eq(TrackPieces.piece_for(0), TrackPieces.EMPTY, "no arms is not track at all")
+
+	check_eq(TrackPieces.piece_for(east | west, 4), TrackPieces.SLOPE,
+			"a straight the ground rises under is a slope piece")
+	check_eq(TrackPieces.piece_for(north_east | south_west, -2), TrackPieces.SLOPE,
+			"so is a diagonal on a climb")
+	check_eq(TrackPieces.piece_for(north | south | east, 6), TrackPieces.JUNCTION,
+			"but a junction on a hill is still the thing the player cares about")
+	check_eq(TrackPieces.label(TrackPieces.CURVE_90), "90° curve",
+			"the table answers in the words the specification uses")
+	check_true(TrackPieces.is_curved(TrackPieces.CURVE_45), "a curve is a curve")
+	check_false(TrackPieces.is_curved(TrackPieces.STRAIGHT), "a straight is not")
+
+
+func test_the_renderer_names_the_pieces_it_actually_drew() -> void:
+	session.builder.build_track_run(TestConstruction.east_run(Vector2i(4, 4), 4))
+	session.builder.build_track_run([Vector2i(4, 8), Vector2i(5, 8), Vector2i(6, 7)])
+	session.builder.build_track_run(TestConstruction.east_run(Vector2i(4, 12), 5))
+	session.builder.build_track_run([Vector2i(6, 10), Vector2i(6, 11)])
+	rebuild_pending()
+
+	check_eq(renderer.piece_of(Vector2i(5, 4)), TrackPieces.STRAIGHT,
+			"the middle of a line is a straight")
+	check_eq(renderer.piece_of(Vector2i(4, 4)), TrackPieces.END, "and its first cell is a stop")
+	check_eq(renderer.piece_of(Vector2i(5, 8)), TrackPieces.CURVE_45, "the bend is a 45 curve")
+	check_eq(renderer.piece_of(Vector2i(6, 12)), TrackPieces.JUNCTION,
+			"where three lines meet, the renderer says junction")
+	check_eq(renderer.piece_of(Vector2i(60, 60)), "", "ground with no rail names nothing")
+
+	var counts := renderer.piece_counts()
+	var total := 0
+	for piece in counts.keys():
+		check_true(TrackPieces.PIECES.has(String(piece)),
+				"%s is a name the table offers" % String(piece))
+		total += int(counts[piece])
+	check_eq(total, session.rail.rail_tiles().size(),
+			"every rail cell in the world was named exactly once")
+	check_eq(renderer.piece_total(), total, "and the two readings of the census agree")
+	check_gt(int(counts.get(TrackPieces.JUNCTION, 0)), 0, "the T was built, so a junction is drawn")
+	var halves := 0
+	for tile in session.rail.rail_tiles():
+		halves += TrackPieces.halves_for(session.world.rail_mask_at(tile)).size()
+	check_eq(TestConstruction.chunk_triangles(renderer, CHUNK) / 10, halves,
+			"a piece is exactly the halves the table says it is")
+
+
+func test_a_line_climbing_a_hill_reports_slope_pieces() -> void:
+	var run := TestConstruction.east_run(Vector2i(20, 20), 6)
+	session.builder.build_track_run(run)
+	for step in 6:
+		session.world.set_height(Vector2i(20 + step, 20), step)
+	rebuild_pending()
+
+	check_eq(renderer.piece_of(Vector2i(21, 20)), TrackPieces.SLOPE,
+			"the cell the ground rises under is a slope")
+	check_eq(renderer.piece_of(Vector2i(23, 20)), TrackPieces.SLOPE,
+			"so is one in the middle of the climb")
+	check_eq(renderer.piece_of(Vector2i(20, 20)), TrackPieces.END,
+			"and the stop at the end of the line is still a stop, hill or no hill")
+	check_eq(renderer.piece_of(Vector2i(30, 30)), "", "and dry ground still names nothing")
 
 
 # --- 4.2 chunk batching ---------------------------------------------------------
@@ -197,8 +293,9 @@ func test_slope_piece_bridges_both_tile_heights() -> void:
 	check_near(TestConstruction.lowest_y_near_x(verts, 9.0, 0.001), bridge,
 		"both halves meet at the bridged midpoint height on the shared edge", 0.0001)
 	check_near(TestConstruction.highest_y_near_x(verts, 9.0, 0.001),
-		bridge + TestConstruction.RAIL_LIFT,
-		"the rails cross the shared edge at that same bridged height", 0.0001)
+		(low_elev + high_elev) * 0.5 + TestConstruction.RIDE_HEIGHT,
+		"the rails cross the shared edge at the ride height over that bridged surface",
+		0.0001)
 	check_gt(TestConstruction.lowest_y_near_x(verts, 9.0, 0.001),
 		TestConstruction.lowest_y_near_x(verts, 8.5, 0.001),
 		"a slope piece is not flat: it rises across the connection")

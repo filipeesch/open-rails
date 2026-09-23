@@ -8,7 +8,7 @@
 
 ## 2. Godot project bootstrap
 
-- [x] 2.1 Create `game/project.godot` for Godot 4.7 targeting the Compatibility renderer with `Game.tscn` as the main scene and verify `godot --headless --quit` loads the project without error
+- [x] 2.1 Create `game/project.godot` for Godot 4.7 targeting the Compatibility renderer with `MainMenu.tscn` as the main scene — the boot scene, which hands off to `Game.tscn` — and verify `godot --headless --quit` loads the project without error
 - [x] 2.2 Create `game/scenes/Game.tscn` with the specified `World3D`/`UI`/`GameSession` node skeleton and verify it instantiates headlessly
 - [x] 2.3 Add a script that generates `game/src/domain/world/world_constants.gd` from `world.toml` and verify the generated file reports 1.0 and 0.25
 

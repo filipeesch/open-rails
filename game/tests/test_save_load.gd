@@ -80,12 +80,16 @@ func fresh_session() -> GameSession:
 func test_a_full_round_trip_preserves_the_whole_domain() -> void:
 	var line := TestSession.coal_line(session)
 	check_true(bool(line["ok"]), "a coal line is buildable for the round trip: " + String(line["reason"]))
-	session.advance_ticks(800)
+	# A save worth round-tripping is one that has actually traded, so the wait here
+	# is for the first ton rather than for a count of ticks: a loaded leg across the
+	# valley is longer than a month of the calendar.
+	TestSession.run_until(session, func() -> bool: return session.cargo.delivered_total() > 0.0,
+			TestSession.DELIVERY_TICKS)
 
 	var saved := session.saves.save(SLOT_FULL)
 	check_true(bool(saved["ok"]), "the save wrote: " + String(saved.get("reason", "")))
 	var before := session.snapshot()
-	check_gt(session.cargo.delivered_total(), 0.0, "800 ticks have actually delivered cargo")
+	check_gt(session.cargo.delivered_total(), 0.0, "the world had actually delivered cargo")
 
 	var loaded := fresh_session()
 	var result := loaded.saves.load(SLOT_FULL)
@@ -146,11 +150,12 @@ func test_a_full_round_trip_preserves_the_whole_domain() -> void:
 			session.stations.inventory_of(mine_station, "coal"),
 			"the station's waiting coal survives")
 
-	# The loaded game must go on playing, not sit as a museum piece.  Coal
-	# arrives on the month boundary (tick 1080), so run past it: the restored
-	# train must earn again, not just hold its old revenue.
+	# The loaded game must go on playing, not sit as a museum piece.  The restored
+	# train has to earn again, not merely hold its old revenue — so this waits for
+	# the next ton to change hands, whenever the valley's own pace brings it.
 	var delivered := loaded.cargo.delivered_total()
-	loaded.advance_ticks(600)
+	TestSession.run_until(loaded, func() -> bool: return loaded.cargo.delivered_total() > delivered,
+			TestSession.DELIVERY_TICKS)
 	check_gt(loaded.cargo.delivered_total(), delivered, "the loaded train keeps working")
 	check_gt(loaded.economy.cash, 0.0, "and the company still exists")
 	check_true(loaded.economy.is_consistent(), "money still reconciles after resuming")
@@ -190,7 +195,12 @@ func test_load_restores_money_exactly() -> void:
 	var rows_saved := session.economy.ledger().size()
 	var movement_saved := session.economy.net_movement()
 
-	session.advance_ticks(400)
+	# Time has to actually move the money on before the save is compared against a
+	# world that has moved: what the train earns, and what it costs to keep, are
+	# paid out at the pace the trains run at, not at a count of ticks picked here.
+	TestSession.run_until(session,
+			func() -> bool: return session.economy.cash != cash_saved,
+			TestSession.DELIVERY_TICKS)
 	check_neq(session.economy.cash, cash_saved, "time moved the money on")
 
 	var result := session.saves.load(SLOT_MONEY)
@@ -379,9 +389,12 @@ func test_invalid_slot_names_never_escape_the_folder() -> void:
 func test_autosave_every_three_months_prunes_and_never_mutates() -> void:
 	_autosave_events.clear()
 	session.autosave_performed.connect(_on_autosave_event)
-	# 6 autosave boundaries: Apr, Jul, Oct 1850 and Jan, Apr, Jul 1851 at
-	# 12 ticks/day → Jul 1851 lands on tick 6552.
-	session.advance_ticks(6600)
+	# Six autosave boundaries at the every-3 schedule: Apr, Jul, Oct 1850 and Jan,
+	# Apr, Jul 1851.  The distance to that is derived from the clock's own pace —
+	# `ticks_per_day` is tuning, and a memorised tick count stops short of the
+	# months it is meant to cross the moment the tuning moves.
+	var month_ticks := session.clock.ticks_per_day * 30
+	session.advance_ticks(19 * month_ticks + 8)
 	check_eq(_autosave_events.size(), 6, "six month boundaries at the every-3 schedule fired")
 
 	var kept := 0

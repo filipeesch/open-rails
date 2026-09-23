@@ -176,7 +176,7 @@ func test_a_station_beside_no_rail_says_so_instead_of_pointing_at_the_origin() -
 	var access := session.stations.rail_access_tile(station_id)
 	session.world.set_rail_cell(access, false)
 	session.world.clear_occupancy(access)
-	for tile in TestSession.spur_tiles(Vector2i(mine_tile.x, mine_tile.y - 3)):
+	for tile in TestSession.spur_tiles(Vector2i(mine_tile.x, mine_tile.y + TestSession.SPUR_OFFSET.y)):
 		session.world.set_rail_cell(tile, false)
 		session.world.clear_occupancy(tile)
 	check_false(session.stations.has_rail_access(station_id), "with its rail gone it has no access")
@@ -345,8 +345,9 @@ func test_renaming_a_station_leaves_the_train_running_its_route() -> void:
 	check_neq(session.trains.route_of(train_id), 0, "with the train still working it")
 
 	watch_months(session.clock)
-	check_true(run_months(session.clock, 2), "two months of the calendar pass")
-	check_true(run_months(session.clock, 2), "and two more, with the trains still running")
+	TestSession.run_until(session,
+			func() -> bool: return float(session.cargo.delivered_by_cargo().get("coal", 0.0)) > 0.0,
+			TestSession.DELIVERY_TICKS)
 	var moved: float = session.cargo.delivered_by_cargo().get("coal", 0.0)
 	check_gt(moved, 0.0, "coal is still arriving at the works under its new name")
 	check_true(session.economy.is_consistent(), "and the ledger still balances")
@@ -394,7 +395,7 @@ func _prepared_site() -> Vector2i:
 				continue
 			if not bool(TestSession.lay_spur(session, anchor)["ok"]):
 				continue
-			var site := anchor + Vector2i(0, 2)
+			var site := anchor + Vector2i(0, 1)
 			if session.stations.placement_reason("small_station", site) != "":
 				continue
 			return site

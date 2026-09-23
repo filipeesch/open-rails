@@ -54,6 +54,17 @@ widgets (`ui-components`).
   via the tool palette hint text.
 - Removal preview highlights exactly what will disappear and shows the
   dependent-station refusal path verbatim from the service reason.
+- Where a footprint sits relative to the cursor is computed by ONE function
+  (`InputController.station_anchor_for`), published beside the preview
+  (`ghost_anchor`), and read by both the ghost and the commit. Two paths that
+  each work out "the anchor" drift a tile apart and the player pays for the
+  yard they did not watch.
+- One preview dictionary feeds every listener — the cursor readout, the palette
+  and the world-space bands (`StationGhost`) — and the validity *word*
+  (`ok` / `expensive` / `invalid`) is the domain's, never a listener's inference.
+  Figures the ghost quotes (catchment cells, covered sources, `monthly` per
+  cargo) are summed inside `BuilderService.preview_station` from the sources'
+  own declared rates, so a preview cannot disagree with the first month.
 - Cursor states are distinct icons (build/remove/erase), never colour-only
   distinctions.
 
@@ -69,6 +80,13 @@ two-stage and validity binding (service stubbed).
 - Ghost floating over hills (no height sampling).
 - Escape closing the whole palette mid-drag (wrong stage order).
 - Preview re-running A* every frame instead of per tile change.
+- Baking green/yellow/red into vertex colours and leaving the ghost node on the
+  engine's default material — the verdict is then written into geometry nothing
+  reads. A ghost needs a vertex-colour, unshaded, alpha-transparent material, and
+  the test should read the colour back off the mesh to prove it arrived.
+- Writing `show_ghost()` and never calling it. A renderer nobody attaches to the
+  controller draws nothing; assert the shipped wiring by connecting the real
+  controller to the real renderer in a test.
 
 ## Related skills
 `rail-builder`, `station-system`, `iso-world`, `ux-principles`,

@@ -6,6 +6,13 @@ extends Node3D
 ## One MultiMesh per effect type, a fixed pool of particles, and nothing
 ## simulated while the emitter is offscreen or further away than the effect's
 ## useful range.  Smoke is decoration: it never touches simulation state.
+##
+## The tier is the camera rig's orthographic size, the same proxy the entity
+## bodies read, so pulling the view back steps the effects down through the
+## documented tiers: one puff per emitting locomotive per frame close in, every
+## other frame at the working zoom, and nothing at all in the overview — where
+## the pool is only stepped on a fraction of the frames, which is how the smoke
+## already in the air ages out instead of hanging there for the rest of the run.
 
 const SMOKE_POOL := 220
 const SMOKE_LIFE := 2.4
@@ -13,6 +20,20 @@ const SMOKE_RISE := 1.5
 const SMOKE_DRIFT := 0.5
 const SMOKE_MAX_DISTANCE := 70.0
 const ARRIVAL_PUFFS := 6
+## Locomotives emitting at once.  Beyond this the extra plumes are indistinguishable
+## from the ones already drawn, and the pool would only be spending slots.
+const MAX_EMITTERS := 8
+## The medium tier halves the emission rate: a plume every other frame is the same
+## column of smoke from a dozen tiles up, for half the spawns.
+const MEDIUM_RATE_DIVISOR := 2
+## At the far tier the pool is stepped once every this many frames — enough to
+## finish off what is already airborne, far too little to be a per-frame cost.
+const FAR_UPDATE_INTERVAL := 4
+## Seconds a step advances a particle's life when the engine has no process delta
+## to give: a pool that is never aged never frees its particles, so a host outside
+## a frame — a headless run, an offscreen pass — still has to pay the display rate
+## this layer was authored against.
+const STEP_SECONDS := 1.0 / 60.0
 
 var session: GameSession
 var camera_rig: IsoCameraRig
@@ -24,6 +45,8 @@ var _particles: Array[Dictionary] = []
 var _free: Array[int] = []
 var _emitted := 0
 var _live := 0
+var _frames := 0
+var _steps := 0
 
 
 func attach(game_session: GameSession, rig: IsoCameraRig) -> void:
@@ -60,21 +83,62 @@ func attach(game_session: GameSession, rig: IsoCameraRig) -> void:
 func tick() -> void:
 	if session == null or smoke == null:
 		return
+	_frames += 1
+	if lod_level() == IsoCameraRig.LOD_FAR and _frames % FAR_UPDATE_INTERVAL != 0:
+		return
+	_step()
+
+
+# --- what the tier is actually doing ----------------------------------------
+
+func lod_level() -> int:
+	return camera_rig.lod_level() if camera_rig != null else IsoCameraRig.LOD_NEAR
+
+
+## Smoke exists at the two close tiers and stops entirely at the far one, where a
+## puff is a speck that costs the same pool slot as a visible one.
+func particles_allowed() -> bool:
+	return lod_level() != IsoCameraRig.LOD_FAR
+
+
+## Whether the layer is currently suspended: nothing new is born and the pool is
+## stepped on a fraction of the frames.  Nothing here reaches the simulation, so
+## this is the state a run of the game can be dropped into without cost.
+func animation_suspended() -> bool:
+	return not particles_allowed()
+
+
+func live_particles() -> int:
+	return _live
+
+
+func emitted_total() -> int:
+	return _emitted
+
+
+## Frames on which the pool was actually stepped.  This is the update-frequency
+## tier made visible: at the far tier it grows a quarter as fast as `_frames`.
+func step_count() -> int:
+	return _steps
+
+
+func pool_size() -> int:
+	return SMOKE_POOL
+
+
+func puff_at(world_point: Vector3, count: int = 6) -> void:
+	_spawn(world_point, count)
+
+
+# --- the pool -------------------------------------------------------------
+
+func _step() -> void:
+	_steps += 1
 	var delta := get_process_delta_time()
-	var camera_position := _camera_position()
-	var emitting_index := 0
-	for train_id in session.trains.trains():
-		if session.trains.state_of(train_id) != session.trains.State.MOVING:
-			continue
-		if session.trains.speed_tiles_per_tick(train_id) <= 0.02:
-			continue
-		var origin := _train_world(train_id)
-		if camera_position.distance_to(origin) > SMOKE_MAX_DISTANCE:
-			continue
-		if emitting_index >= 8:
-			continue
-		_spawn(origin, 1)
-		emitting_index += 1
+	if delta <= 0.0:
+		delta = STEP_SECONDS
+	if particles_allowed() and _emission_rate_allows():
+		_emit_from_chimneys()
 	var live := 0
 	for index in SMOKE_POOL:
 		var particle: Dictionary = _particles[index]
@@ -96,20 +160,32 @@ func tick() -> void:
 	_live = live
 
 
-func live_particles() -> int:
-	return _live
+## One puff per moving locomotive inside the view's useful range, capped at
+## `MAX_EMITTERS` chimneys per step.
+func _emit_from_chimneys() -> void:
+	var anchor := _view_anchor()
+	var emitting_index := 0
+	for train_id in session.trains.trains():
+		if session.trains.state_of(train_id) != session.trains.State.MOVING:
+			continue
+		if session.trains.speed_tiles_per_tick(train_id) <= 0.02:
+			continue
+		var origin := _train_world(train_id)
+		if anchor.distance_to(origin) > SMOKE_MAX_DISTANCE:
+			continue
+		if emitting_index >= MAX_EMITTERS:
+			break
+		_spawn(origin, 1)
+		emitting_index += 1
 
 
-func emitted_total() -> int:
-	return _emitted
-
-
-func pool_size() -> int:
-	return SMOKE_POOL
-
-
-func puff_at(world_point: Vector3, count: int = 6) -> void:
-	_spawn(world_point, count)
+## How often a locomotive's chimney is allowed to fire.  An event puff — a train
+## arriving — is not a rate and is not throttled by this; only the per-frame
+## emission is.
+func _emission_rate_allows() -> bool:
+	if lod_level() == IsoCameraRig.LOD_MEDIUM:
+		return _frames % MEDIUM_RATE_DIVISOR == 0
+	return true
 
 
 func _on_train_arrived(_train_id: int, station_id: int) -> void:
@@ -118,6 +194,8 @@ func _on_train_arrived(_train_id: int, station_id: int) -> void:
 
 
 func _spawn(origin: Vector3, count: int) -> void:
+	if not particles_allowed():
+		return
 	for _index in count:
 		if _free.is_empty():
 			return
@@ -135,12 +213,13 @@ func _train_world(train_id: int) -> Vector3:
 	return Vector3(tiles.x, session.world.elevation_at(Vector2i(floori(tiles.x), floori(tiles.y))) + 0.55, tiles.y)
 
 
-func _camera_position() -> Vector3:
-	var viewport := get_viewport()
-	if viewport == null:
-		return Vector3.ZERO
-	var camera := viewport.get_camera_3d()
-	return camera.global_position if camera != null else Vector3.ZERO
+## The point the view is centred on.  Under an orthographic camera the eye sits a
+## fixed, arbitrary distance back — measured to it, every emitter on the map is
+## equally far away and the range test silently culls everything.  What matters is
+## distance from the middle of what is on screen: an emitter outside the useful
+## range of the view is pluming where nobody can see it.
+func _view_anchor() -> Vector3:
+	return camera_rig.target if camera_rig != null else Vector3.ZERO
 
 
 func _clear() -> void:

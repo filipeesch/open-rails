@@ -14,6 +14,10 @@ func test_world_constants_match_canonical_config() -> void:
 	check_near(WorldConstants.CAMERA_FIXED_PITCH, 35.264, "isometric pitch is fixed", 0.001)
 	check_near(WorldConstants.CAMERA_DEFAULT_YAW, 45.0, "canonical yaw is 45 degrees")
 	check_near(WorldConstants.STATION_CATCHMENT, 4.0, "station catchment starts at 4 tiles")
+	# Not a decoration: every speed in the game is divided by this, so a silent
+	# change here silently changes how fast the valley runs on screen.
+	check_near(WorldConstants.TILE_METRES, 16.0,
+			"a tile is worth sixteen metres — the anchor the whole speed scale is derived from")
 
 
 func test_camera_zoom_band_is_ordered() -> void:
@@ -45,3 +49,24 @@ func test_main_scene_instantiates() -> void:
 	check_true(instance.get_node_or_null("UI") != null, "UI exists under Game")
 	check_true(instance.get_node_or_null("GameSession") != null, "GameSession exists under Game")
 	instance.free()
+
+
+## `rr.py game run` has to work with no scene named on the command line, and the
+## one way it can silently stop working is the settings file itself: `project.godot`
+## is a ConfigFile, not an INI, and `#` is not its comment character — the parser
+## swallows the line that follows a `#` run. A `run/main_scene` sitting under three
+## perfectly reasonable `#` comments therefore vanished while the file still looked
+## right to anyone reading it, and the game became unlaunchable by its own guide.
+func test_the_game_starts_without_being_told_which_scene() -> void:
+	var text := FileAccess.get_file_as_string("res://project.godot")
+	check_true(text != "", "project.godot is readable")
+	for line in text.split("\n"):
+		check_false(line.strip_edges().begins_with("#"),
+				"comments in project.godot start with ';' — a '#' eats the next line: %s" % line)
+	var entry := String(ProjectSettings.get_setting("application/run/main_scene"))
+	check_true(entry != "", "the project names a main scene of its own")
+	check_true(FileAccess.file_exists(entry), "and %s is really there" % entry)
+	var menu: PackedScene = load(entry) if entry != "" else null
+	check_true(menu != null, "the main scene loads")
+	# A PackedScene is a Resource: reference-counted, so it goes when this scope
+	# does.  `free()` on one is an error the runner treats as a failed run.

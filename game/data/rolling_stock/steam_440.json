@@ -9,5 +9,6 @@
   "power": 1.0,
   "weight_tons": 26.0,
   "wheel_radius": 0.11,
+  "length_tiles": 1.04,
   "description": "The workhorse of the early lines. Balanced, cheap to run, unexciting."
 }

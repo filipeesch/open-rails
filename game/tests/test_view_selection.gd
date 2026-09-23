@@ -162,7 +162,22 @@ func test_a_train_is_picked_before_what_it_is_standing_on() -> void:
 	_view.look_at_tile(on_tile)
 
 	var pixel := _view.rig.world_to_screen(_view.selection.train_anchor(train_id), _view.rect())
-	pixel = pixel * TestView.VIEWPORT_SIZE
+	pixel = _view.rect().position + pixel
+	# The rig answers in pixels, not in fractions of the viewport.  A train placed in
+	# the middle of the view therefore lands on a pixel inside the view; a fractional
+	# answer would land within a couple of pixels of the top-left corner, and every
+	# pick below would still "work" only because the same fraction was multiplied
+	# back out here — a unit error agreed between two callers is still a unit error.
+	check_true(Rect2(Vector2.ZERO, TestView.VIEWPORT_SIZE).has_point(pixel),
+			"a train in the middle of the view projects to a pixel inside the view")
+	# A train's anchor is its own point on the line, not the centre of the tile the
+	# camera was pointed at, so the honest bound is a fraction of a tile rather than
+	# a handful of made-up pixels.  The fractional answer this replaced landed 640 px
+	# away, in the window's top-left corner.
+	var half_a_tile := TestView.VIEWPORT_SIZE.y / _view.rig.orthographic_tiles() * 0.5
+	check_lt(pixel.distance_to(TestView.VIEWPORT_SIZE * 0.5), half_a_tile,
+			"and within half a tile of the centre the camera was pointed at, rather "
+			+ "than at the corner of the window the fractional answer used to land on")
 	var hit := _view.selection.resolve_entity(on_tile, pixel)
 	check_eq(hit["kind"], SelectionService.KIND_TRAIN,
 		"a pixel over a train resolves to the train, whatever is under it")

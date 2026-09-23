@@ -10,6 +10,12 @@ height_step = 0.25
 default_chunk = 32
 map_width = 256
 map_height = 256
+# What one tile measures on the ground.  Nothing in the art depends on it -- a
+# model is authored 0.85 tiles long whatever a tile is worth -- but every speed
+# in the game is stated in km/h and consumed in tiles, so the two units have to
+# meet somewhere.  Anchored on the rolling stock: a 4-4-0 American is ~14 m over
+# the buffers and is built 0.85 tiles long, which puts a tile at ~16 m.
+metres_per_tile = 16.0
 
 [camera]
 default_yaw_degrees = 45.0

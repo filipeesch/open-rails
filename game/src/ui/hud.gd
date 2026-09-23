@@ -17,6 +17,8 @@ var _tick: Timer
 var _last_cash := 0.0
 var _last_profit := 0.0
 var _last_date := ""
+## Whether the bar has been drawn once.  See `_refresh`.
+var _painted := false
 
 
 func attach(game_session: GameSession) -> void:
@@ -100,23 +102,29 @@ func _on_money(_amount: float = 0.0, _cash: float = 0.0, _label: String = "") ->
 func _refresh() -> void:
 	if session == null:
 		return
+	# `not _painted or …` rather than a bare comparison: the last three fields start
+	# at 0 / "", and a valley that opens at break-even has a profit of exactly 0.
+	# Compared against that sentinel the change is never noticed, so the bar sat on
+	# its placeholder for the whole game — a field that lies because it was never
+	# written.  The flag says "the first answer always gets drawn".
 	var date_text := session.clock.date.display()
-	if date_text != _last_date:
+	if not _painted or date_text != _last_date:
 		date_label.text = date_text
 		_last_date = date_text
 	var cash := session.economy.cash
-	if absf(cash - _last_cash) > 0.001:
+	if not _painted or absf(cash - _last_cash) > 0.001:
 		cash_label.text = GameTheme.money_compact(cash)
 		cash_label.add_theme_color_override("font_color",
 			GameTheme.DANGER if cash < 0.0 else GameTheme.TEXT)
 		_last_cash = cash
 	var totals := session.economy.current_month_totals()
 	var profit := float(totals["profit"])
-	if absf(profit - _last_profit) > 0.001:
+	if not _painted or absf(profit - _last_profit) > 0.001:
 		profit_label.text = "%s/mo" % GameTheme.signed_money(profit)
 		profit_label.add_theme_color_override("font_color",
 			GameTheme.GOOD if profit > 0.0 else (GameTheme.DANGER if profit < 0.0 else GameTheme.TEXT_DIM))
 		_last_profit = profit
+	_painted = true
 	for index in speed_buttons.size():
 		speed_buttons[index].button_pressed = index == session.clock.speed_index
 		speed_buttons[index].add_theme_color_override("font_color",

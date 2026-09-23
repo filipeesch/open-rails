@@ -37,6 +37,7 @@ shadow_enabled = true
 layout_mode = 3
 anchors_preset = 10
 anchor_right = 1.0
+offset_bottom = 52.0
 
 [node name="BottomToolbar" type="Control" parent="UI"]
 layout_mode = 3
@@ -44,6 +45,7 @@ anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_top = -52.0
 
 [node name="ContextInspector" type="HBoxContainer" parent="UI"]
 layout_mode = 3
@@ -79,6 +81,20 @@ visible = false
 script = ExtResource("3_trips")
 
 [node name="Notifications" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="MapLabels" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="Tooltips" type="Control" parent="UI"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0

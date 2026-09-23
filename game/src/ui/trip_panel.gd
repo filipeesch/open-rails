@@ -42,9 +42,33 @@ var _list_page: VBoxContainer
 var _tick: Timer
 var _dirty := true
 var _wired := false
+var _built := false
 
 
 func _ready() -> void:
+	_ensure_built()
+	# `game_root.gd` builds the session's collaborators in its own `_ready`,
+	# which runs after a child's, so the lookup waits one frame.  A host that
+	# wires the panel itself through `attach` never takes this path — and an
+	# orphan (a headless test) has no tree to wait on in the first place.
+	if not _wired and is_inside_tree():
+		_await_autowire()
+
+
+func _await_autowire() -> void:
+	await get_tree().process_frame
+	if not _wired:
+		_autowire()
+
+
+## Build once, whoever arrives: `_ready` in the shipped scene, `attach` for an
+## orphan host.  A drawer that builds only inside `_ready` is a drawer no
+## headless test can open, and a panel nobody can open is a panel that lies
+## about being implemented.
+func _ensure_built() -> void:
+	if _built:
+		return
+	_built = true
 	theme = GameTheme.build()
 	add_theme_stylebox_override("panel", GameTheme.panel(GameTheme.BACKGROUND))
 	custom_minimum_size = Vector2(368, 0)
@@ -57,12 +81,6 @@ func _ready() -> void:
 	_tick.autostart = true
 	_tick.timeout.connect(_on_refresh_tick)
 	add_child(_tick)
-	# `game_root.gd` builds the session's collaborators in its own `_ready`,
-	# which runs after a child's, so the lookup waits one frame.  A host that
-	# wires the panel itself through `attach` never takes this path.
-	await get_tree().process_frame
-	if not _wired:
-		_autowire()
 
 
 ## Explicit wiring for a host that owns the panel; the scene does the same thing
@@ -71,6 +89,7 @@ func attach(game_session: GameSession, input: InputController, sel: SelectionSer
 		rig: IsoCameraRig) -> void:
 	if _wired or game_session == null:
 		return
+	_ensure_built()
 	session = game_session
 	controller = input
 	selection = sel
@@ -166,6 +185,8 @@ func _on_refresh_tick() -> void:
 
 func _on_session_loaded() -> void:
 	for row in _rows.values():
+		if row.get_parent() == _list_box:
+			_list_box.remove_child(row)
 		row.queue_free()
 	_rows.clear()
 	_followed_id = 0
@@ -185,6 +206,12 @@ func _on_train_removed(train_id: int) -> void:
 	if _rows.has(train_id):
 		var row: TrainRow = _rows[train_id]
 		_rows.erase(train_id)
+		# Detach now, free later: the removal can be the second press of the
+		# row's own Sell button, and a row cannot be freed mid-emit — so this
+		# one release stays queued even for an orphan.  Detaching immediately
+		# is enough for the list to tell the truth either way.
+		if row.get_parent() == _list_box:
+			_list_box.remove_child(row)
 		row.queue_free()
 	if _followed_id == train_id:
 		_followed_id = 0
@@ -294,8 +321,15 @@ func _on_panel_requested(panel: String) -> void:
 		visible = true
 		_mark_dirty()
 		return
-	if panel == "" and visible:
+	if not visible:
+		return
+	if panel == "":
 		_close()
+		return
+	# Some other panel was asked for.  The left band hosts one drawer at a time,
+	# so this one steps aside — but the controller's choice is the other panel,
+	# and stepping aside must not overwrite it.
+	visible = false
 
 
 func _close() -> void:

@@ -96,7 +96,8 @@ func test_station_definition_parses_its_declared_shape() -> void:
 	check_near(def.catchment_tiles, 4.0, "the catchment is four tiles")
 	check_eq(def.storage_per_cargo, 120, "storage is 120 units per cargo")
 	check_true(def.requires_straight_rail, "a station needs straight rail to be reachable")
-	check_eq(def.rail_search_radius, 2, "it looks two tiles out for that rail")
+	check_eq(def.rail_search_radius, 1,
+			"it couples to the line beside its yard, not to one it merely overlooks")
 
 
 func test_industry_definitions_parse_their_declared_flows() -> void:

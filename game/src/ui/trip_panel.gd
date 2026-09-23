@@ -28,7 +28,6 @@ var _route_editor: RouteEditor
 var _yard: TrainYard
 
 var _rows := {}
-var _followed_id := 0
 var _page := PAGE_TRAINS
 var _filter := ""
 
@@ -158,6 +157,21 @@ func open_route_for(train_id: int) -> void:
 	_edit_route(train_id)
 
 
+## Open the yard with this station already chosen — where the inspector's "Buy a
+## train here" button arrives.  A screen does not reach into another screen's
+## widgets; it asks, and the root carries the ask across.
+func open_yard_for(station_id: int) -> void:
+	if session == null or station_id <= 0:
+		return
+	visible = true
+	_ensure_built()
+	_show_page(PAGE_YARD)
+	refresh_now()
+	if not _yard.select_station(station_id):
+		session.notify("%s cannot start a train yet — the line does not reach it." \
+				% session.stations.name_of(station_id), "bad")
+
+
 func _mark_dirty() -> void:
 	_dirty = true
 
@@ -189,7 +203,9 @@ func _on_session_loaded() -> void:
 			_list_box.remove_child(row)
 		row.queue_free()
 	_rows.clear()
-	_followed_id = 0
+	# Following is the camera's state, not this panel's; a load can hand the same
+	# id to a different consist, so the follow has to be put down for real.
+	_stop_following()
 	for train_id in session.trains.trains():
 		_add_row(train_id)
 	_mark_dirty()
@@ -213,8 +229,8 @@ func _on_train_removed(train_id: int) -> void:
 		if row.get_parent() == _list_box:
 			_list_box.remove_child(row)
 		row.queue_free()
-	if _followed_id == train_id:
-		_followed_id = 0
+	if camera_rig != null and camera_rig.followed_train_id() == train_id:
+		camera_rig.stop_following()
 	_mark_dirty()
 
 
@@ -268,7 +284,6 @@ func _focus_train(train_id: int) -> void:
 	if camera_rig == null:
 		return
 	camera_rig.stop_following()
-	_followed_id = 0
 	camera_rig.focus_tile(Vector2(session.trains.position_tiles(train_id)) + Vector2(0.5, 0.5))
 	if selection != null:
 		selection.select_train(train_id)
@@ -278,13 +293,11 @@ func _follow_train(train_id: int) -> void:
 	if camera_rig == null:
 		return
 	camera_rig.follow_train(train_id, Callable(session.trains, "position_tiles"))
-	_followed_id = train_id
 
 
 func _stop_following() -> void:
 	if camera_rig != null:
 		camera_rig.stop_following()
-	_followed_id = 0
 
 
 func _sell_train(train_id: int) -> void:
@@ -334,8 +347,8 @@ func _on_panel_requested(panel: String) -> void:
 
 func _close() -> void:
 	visible = false
-	if controller != null and controller.active_panel == InputController.PANEL_TRIPS:
-		controller.open_panel("")
+	if controller != null:
+		controller.close_panel(InputController.PANEL_TRIPS)
 	_stop_following()
 
 
@@ -376,7 +389,9 @@ func _paint() -> void:
 		if matches:
 			row.refresh()
 		row.set_selected(selected_train and selection.selected_id == train_id)
-		row.set_following(_followed_id == train_id)
+		# The camera's own answer, so a follow begun on `F` or in the palette lights
+		# this row too — the row must not disagree with the view it sits beside.
+		row.set_following(camera_rig != null and camera_rig.followed_train_id() == train_id)
 	_route_editor.refresh()
 	_yard.refresh()
 	_footer.text = _footer_text()

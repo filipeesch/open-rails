@@ -7,6 +7,13 @@ extends PanelContainer
 ## simulation service — the speed buttons drive the clock, which is the one piece
 ## of state the shell is allowed to push.
 
+## The dial positions, in the order the clock's own `SPEED_LABELS` lists them.
+## `SPEED_ACTIONS` is the InputMap action that sets each position, so the tooltip
+## and the key are the same fact; a test grades the two lists against
+## `SimulationClock.SPEED_LABELS` because three lists that drift are three lies.
+const SPEED_TOOLTIPS := ["Pause", "Normal speed", "Fast", "Very fast"]
+const SPEED_ACTIONS := ["speed_pause", "speed_1x", "speed_2x", "speed_4x"]
+
 var session: GameSession
 var date_label: Label
 var cash_label: Label
@@ -58,7 +65,11 @@ func attach(game_session: GameSession) -> void:
 		# dropped it on the floor.
 		button.toggle_mode = true
 		button.focus_mode = Control.FOCUS_ALL
-		button.tooltip_text = ["Pause", "Normal speed", "Fast", "Very fast"][index]
+		# The key is spelled out of the InputMap rather than typed into the
+		# sentence, so a rebinding moves the tooltip with it.  The dial row is the
+		# only place a player learns that Space and 1/2/3 exist, and the spec asks
+		# that the speeds be reachable from anywhere in the interface.
+		button.tooltip_text = SPEED_TOOLTIPS[index] + KeyHints.hint_suffix(SPEED_ACTIONS[index])
 		button.custom_minimum_size = Vector2(38, 0)
 		button.pressed.connect(_on_speed.bind(index))
 		_buttons.add_child(button)

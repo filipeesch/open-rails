@@ -42,6 +42,14 @@ The law — every point is checkable at review:
 8. **Visible feedback during long interactions** (drags, planning, dwell).
 9. Hover is lightweight context and never replaces selection; selection is
    contextual (same right-side inspector region for everything).
+10. **A control's label is a promise** — pressing it must do the thing the
+    label names, and nothing else. Three breach shapes to look for: wired to
+    nothing (or a `pass` handler); a state-holding toggle standing in for a
+    momentary verb (the control stays lit after the act, so the player reads
+    it as a mode); label written by one function, behaviour by another.
+11. **A screen does not reach into another screen** — a verb that lives in a
+    sibling screen is emitted as a signal and wired by the composition root,
+    never by digging through the tree or a node group.
 
 ## Public interfaces
 No code. Design-review checklist derived from the law:
@@ -54,11 +62,18 @@ specificity, escape path, reversibility, feedback during waits.
 - New list of world entities? It should focus the camera on selection, not
   replace clicking the world (search/palette is the one sanctioned list).
 - Copy tone: short, concrete, names the thing ("Coal Mine inventory full").
+- Every control gets a test that **presses** it and asserts a state change in
+  the thing it claims to act on. A label is not evidence; a signal emitted
+  into an empty room is not evidence.
+- `GameTheme.button_for` for verbs, `GameTheme.toggle` only for controls that
+  hold a state the player can read back. Wrong factory = lying control.
+- Cross-screen verbs: the screen emits, `src/game_root.gd` wires. Grep the
+  root for the signal name before claiming a button works.
 
 ## Validation
 Walkthrough test against the spec's V1-complete checklist: a new player
 performs launch → build → route → earn → save → load unaided. UI PR review:
-each of the nine invariants pass/fail recorded; failures fixed or waived in
+each of the eleven invariants pass/fail recorded; failures fixed or waived in
 writing.
 
 ## Common mistakes
@@ -66,6 +81,12 @@ writing.
 - Choosing stations from a dropdown because it's easier than pick mode.
 - Red-only invalid feedback (colour-blind failure).
 - Tooltips that hold the only copy of an error message.
+- Counting `signal_x.connect(...)` as proof a button works: check that the
+  connect target is not a field nobody ever sets, and that the handler is not
+  `pass`.
+- A button whose label is rewritten by the state-refresh function while its
+  handler reads a different variable — the two drift and the button starts
+  promising the opposite of what it does.
 
 ## Related skills
 `ui-components`, `build-mode-ux`, `input-navigation`, `camera-navigation`,

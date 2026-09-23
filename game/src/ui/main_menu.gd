@@ -162,7 +162,13 @@ func _stamp_for_path(path: String) -> String:
 func press_continue() -> void:
 	if not can_continue():
 		return
-	load_requested.emit(continue_path())
+	var path := continue_path()
+	# The signal is for a host that wants to know; the intent is for the game that
+	# is about to be built, which is the only listener that can actually open the
+	# file.  Emitting the signal alone used to leave this button starting a brand
+	# new valley while its own note named the save it was returning to.
+	SandboxIntent.write_resume(path)
+	load_requested.emit(path)
 	_handoff()
 
 
@@ -291,6 +297,10 @@ func _rebuild_save_list() -> void:
 		var line := GameTheme.button_for(_row_label(row), "Load %s." % slot)
 		line.name = "Row_" + slot
 		line.pressed.connect(func() -> void:
+			# The same hand-off Continue makes: the file this row is named for is
+			# the file the arriving game has to open.  `path` is this row's own,
+			# captured when the closure was made — one row per save, on purpose.
+			SandboxIntent.write_resume(path)
 			load_requested.emit(path)
 			_handoff())
 		_save_list.add_child(line)

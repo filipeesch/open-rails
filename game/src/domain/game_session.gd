@@ -414,6 +414,13 @@ func restore(snapshot_data: Dictionary) -> bool:
 	if version < 1 or version > SAVE_VERSION:
 		last_error = "Save version %d is not supported" % version
 		return false
+	if not started:
+		# Refused in words rather than answered in Nil: every service a snapshot
+		# is poured into is built by `start`, so restoring into a session that
+		# never booted used to fail as a cascade of property errors no reader
+		# could trace back to the one thing that had not happened.
+		last_error = "No world is running to load into — start one first"
+		return false
 	if not _ensure_data():
 		last_error = "Data definitions failed to load"
 		return false

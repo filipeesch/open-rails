@@ -11,15 +11,22 @@ signal buy_train_requested(station_id: int)
 var session: GameSession
 var selection: SelectionService
 var camera_rig: IsoCameraRig
+## What arms a tool, when the host has named one.  See `attach`.
+var controller: InputController = null
 var column: VBoxContainer
 var _kind: String = SelectionService.KIND_NONE
 var _entity_id := 0
 
 
-func attach(game_session: GameSession, sel: SelectionService, rig: IsoCameraRig) -> void:
+## The fourth argument names the controller the tool verbs go through.  It is
+## optional because the panel is useful without it — the readings are the same —
+## but an action that has nothing to arm is not built at all rather than built dead.
+func attach(game_session: GameSession, sel: SelectionService, rig: IsoCameraRig,
+		controller: InputController = null) -> void:
 	session = game_session
 	selection = sel
 	camera_rig = rig
+	self.controller = controller
 	theme = GameTheme.build()
 	add_theme_stylebox_override("panel", GameTheme.panel(GameTheme.BACKGROUND))
 	custom_minimum_size = Vector2(266, 0)
@@ -109,6 +116,17 @@ func _header(title: String, sub: String = "") -> void:
 	column.add_child(HSeparator.new())
 
 
+## Station tool in hand, view on the industry, ghost where the cursor will land.
+## The tool does the rest — legality, price, the catchment readout — because this
+## screen has no opinion of its own about where a station may stand.
+func _arm_station_here() -> void:
+	controller.arm_station()
+	var tile := Vector2i(session.industries.tile_of(_entity_id))
+	if tile != Vector2i(-1, -1):
+		camera_rig.stop_following()
+		camera_rig.focus_tile(Vector2(tile) + Vector2(0.5, 0.5))
+
+
 func _action(text: String, callback: Callable) -> void:
 	var button := GameTheme.button_for(text)
 	button.pressed.connect(callback)
@@ -177,8 +195,12 @@ func _industry_panel() -> void:
 				int(flow["capacity_per_month"]), session.data.cargo_display(String(flow["cargo"]))]))
 	column.add_child(GameTheme.body("Delivered so far: %d" % int(float(session.industries.industry(_entity_id).get("total_shipped", 0.0))), GameTheme.TEXT_DIM))
 	_action("Focus", func(): focus_requested.emit("industry", _entity_id))
-	_action("Build a station here", func(): 
-		pass)
+	# The verb a producer's panel exists to offer: this coal is waiting to be
+	# collected, and the way to collect it is a station beside it.  It used to be a
+	# button whose handler was `pass` — the door was painted on the wall.  With no
+	# controller named by the host there is nothing to arm, so no door is offered.
+	if controller != null:
+		_action("Build a station here", _arm_station_here)
 
 
 func _town_panel() -> void:

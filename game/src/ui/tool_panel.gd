@@ -68,8 +68,15 @@ func attach(game_session: GameSession, controller: InputController) -> void:
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(hint_label)
 
-	action_button = GameTheme.button_for("Cancel", "Esc")
-	action_button.pressed.connect(func(): input.cancel())
+	action_button = GameTheme.button_for("Cancel", "Put the tool down " \
+			+ KeyHints.hint_suffix("tool_cancel"))
+	# The button does the thing its own text promises.  While the ghost is standing
+	# on a place that can take the tool, that promise is the build itself — the same
+	# verb a click on the map performs, at the tile the ghost is on.  Only when the
+	# ghost has been refused is the honest verb a cancel; it used to cancel either
+	# way, which made a player who read "Click to build" and clicked put the tool
+	# down instead of laying the line.
+	action_button.pressed.connect(_on_action_pressed)
 	column.add_child(action_button)
 
 	controller.tool_changed.connect(_on_tool)
@@ -166,6 +173,10 @@ func _update() -> void:
 			cost_label.text = ""
 			cost_label.add_theme_color_override("font_color", GameTheme.TEXT)
 			detail_label.modulate = Color.WHITE
+			# Named here rather than left standing over from the last tool: a
+			# button that still reads "Build here" with nothing armed is a button
+			# whose text is a memory rather than an offer.
+			_offer_cancel()
 		"ok":
 			# A removal carries a negative cost — money coming back.  Showing it as
 			# a plain price would tell the player to expect a charge, so refunds are
@@ -177,19 +188,52 @@ func _update() -> void:
 				cost_label.text = "%s  ·  %d tiles" % [GameTheme.money(_cost), _tiles.size()] \
 					if _cost > 0.0 else "Ready"
 			cost_label.add_theme_color_override("font_color", GameTheme.GOOD)
-			action_button.text = "Click to build"
+			_offer_build(false)
 		"expensive":
 			cost_label.text = "%s  ·  long route" % GameTheme.money(_cost)
 			cost_label.add_theme_color_override("font_color", GameTheme.WARNING)
-			action_button.text = "Click to build anyway"
+			_offer_build(true)
 		"invalid":
 			cost_label.text = _reason if _reason != "" else "Cannot build here"
 			cost_label.add_theme_color_override("font_color", GameTheme.DANGER)
-			action_button.text = "Cancel"
+			_offer_cancel()
 	if _state != "invalid" and _reason != "":
 		hint_label.text = _reason
 	if input != null and input.tool == InputController.TOOL_STATION and _state != "invalid":
 		hint_label.text = _catchment_text()
+
+
+## The panel's verb, worded for what the ghost allows and wired to the same thing.
+## Both texts are claims the press handler below has to keep true.
+func _offer_build(anyway: bool) -> void:
+	# Named for the tool in hand: "Build here" over a tile the player is being
+	# asked to clear would be a label describing some other button.
+	var verb := "Build this"
+	if input != null:
+		match input.tool:
+			InputController.TOOL_RAIL:
+				verb = "Lay this line"
+			InputController.TOOL_REMOVE:
+				verb = "Remove this track"
+	action_button.text = verb + " anyway" if anyway else verb
+	action_button.tooltip_text = "Does what the ghost is showing, at the place it stands."
+
+
+func _offer_cancel() -> void:
+	action_button.text = "Cancel"
+	action_button.tooltip_text = "Put the tool down " + KeyHints.hint_suffix("tool_cancel")
+
+
+## The one press behind both texts.  A build goes through `build_at`, the verb a
+## click on the map uses, at the far end of the ghost — the tile the player has
+## been looking at.  Anything else the button can mean is the way out.
+func _on_action_pressed() -> void:
+	if input == null:
+		return
+	if _state == "invalid" or _state == "none" or _tiles.is_empty():
+		input.cancel()
+		return
+	input.build_at(_tiles[_tiles.size() - 1])
 
 
 ## The ghost preview carries the domain's own verdict for every place in reach,

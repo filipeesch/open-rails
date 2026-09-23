@@ -197,7 +197,10 @@ func _build() -> void:
 	start.name = "Start"
 	start.pressed.connect(start_sandbox)
 	footer.add_child(start)
-	var back := GameTheme.toggle("Back", "Return to the main menu.")
+	# A plain button: "Back" is a verb. The map rows below are `toggle_mode`
+	# because they hold a choice; this one holds nothing, and a toggle left lit
+	# after the click claims a selection that was never made.
+	var back := GameTheme.button_for("Back", "Return to the main menu.")
 	back.name = "Back"
 	back.pressed.connect(press_cancel)
 	footer.add_child(back)

@@ -66,6 +66,22 @@ func mark_dirty() -> void:
 	_dirty = true
 
 
+## Point the form at this station — how a player arrives from the inspector's "Buy
+## a train here" rather than from the yard's own dropdown.  Says whether the
+## station was on the list at all, so the drawer can answer in words when it was
+## not, rather than opening a form that quietly ignored the request.
+func select_station(station_id: int) -> bool:
+	_ensure_built()
+	if _station_select.item_count == 0:
+		refresh()
+	for index in _station_select.item_count:
+		if int(_station_select.get_item_metadata(index)) == station_id:
+			_station_select.select(index)
+			mark_dirty()
+			return true
+	return false
+
+
 func _on_changed(_argument: Variant = null) -> void:
 	_dirty = true
 

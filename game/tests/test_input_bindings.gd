@@ -97,7 +97,7 @@ func test_the_keys_the_help_names_are_the_keys_the_engine_answers_to() -> void:
 	# engine answered `Tab` and `F4`, and nothing in the suite was comparing the
 	# two, because the numbers only ever lived in `project.godot`.
 	var answers := {
-		"cam_reset": [KEY_TAB, KEY_HOME],
+		"cam_reset": [KEY_HOME],
 		"debug_overlay": [KEY_F3, KEY_F4],
 		"build_mode": [KEY_B],
 		"company_panel": [KEY_C],
@@ -112,6 +112,16 @@ func test_the_keys_the_help_names_are_the_keys_the_engine_answers_to() -> void:
 		for keycode in Array(answers[action]):
 			check_true(bound.has(int(keycode)),
 					"%s answers to %s" % [action, OS.get_keycode_string(int(keycode))])
+
+	# `Tab` used to be bound to the camera reset as well, and it never fired: Tab is
+	# the engine's own focus-walk key, and every control in this interface takes
+	# focus, so a button that has been clicked once eats the press before the valley
+	# ever sees it.  A binding that cannot arrive is a lie about a shortcut.
+	var reset_keys := {}
+	for event in InputMap.action_get_events("cam_reset"):
+		reset_keys[(event as InputEventKey).physical_keycode] = true
+	check_false(reset_keys.has(int(KEY_TAB)),
+			"the camera reset does not claim the engine's focus key")
 
 
 func test_a_hint_is_the_glyph_a_player_reads_not_the_engines_own_word() -> void:

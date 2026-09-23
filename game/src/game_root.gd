@@ -21,6 +21,10 @@ var input: InputController
 var tool_panel: ToolPanel
 var company_panel: CompanyPanel
 var context_inspector: ContextInspector
+var world_panel: WorldPanel
+## The train drawer, authored in `Game.tscn`; held because the inspector's buttons
+## arrive there and nothing else in the tree can see both ends of that path.
+var train_drawer: TripPanel
 var notifications: NotificationCenter
 var command_palette: CommandPalette
 var map_labels: MapLabels
@@ -53,9 +57,48 @@ func _exit_tree() -> void:
 ## company name are used, so the game has never needed the menu to exist.
 func _start_sandbox() -> void:
 	var intent := SandboxIntent.consume()
-	if bool(intent.get("pending", false)) and _session.has_method("choose_company_name"):
+	var resume := String(intent.get("save_path", ""))
+	if resume == "" and bool(intent.get("pending", false)) \
+			and _session.has_method("choose_company_name"):
 		_session.choose_company_name(String(intent.get("company_name", "")))
+	# The world is booted before it is restored, saved game or not.  A session that
+	# never booted has no services to restore into — every one of them is built by
+	# the boot — and `restore` over that answers with a wall of Nil rather than a
+	# valley.  A resumed game names its own company and its own map, so the choice
+	# the New Sandbox screen made is deliberately not applied to it.
 	_session.start(String(intent.get("map", "founders_valley")))
+	if resume != "":
+		_resume_valley(resume)
+
+
+## Open a saved valley in place of a new one, and say in words when it will not
+## open.  A save that cannot be read must never quietly turn into a fresh 1850:
+## the button the player pressed said the valley was on disk, and a valley that
+## opens empty looks like the game ate their railway.
+func _resume_valley(path: String) -> bool:
+	var verdict: Dictionary = _session.load_from(path)
+	if bool(verdict.get("ok", false)):
+		return true
+	_session.notify("Could not open the saved valley — %s — so a new one was started." \
+			% String(verdict.get("reason", "the file could not be read")), "bad")
+	return false
+
+
+## The inspector's "Focus", whichever kind of thing is selected: the same verb `F`
+## performs, since the panel is drawn for the selection.  One behaviour, two hands
+## on it, and no chance of the two drifting apart.
+func _on_inspector_focus(_kind: String, _entity_id: int) -> void:
+	input.focus_selection()
+
+
+func _on_inspector_route(train_id: int) -> void:
+	if train_drawer != null:
+		train_drawer.open_route_for(train_id)
+
+
+func _on_inspector_buy_train(station_id: int) -> void:
+	if train_drawer != null:
+		train_drawer.open_yard_for(station_id)
 
 
 func _build_presentation() -> void:
@@ -128,9 +171,23 @@ func _build_interface() -> void:
 	$UI/ToolPanel.add_child(company_panel)
 	company_panel.attach(_session, input)
 
+	world_panel = WorldPanel.new()
+	world_panel.name = "World"
+	$UI/ToolPanel.add_child(world_panel)
+	world_panel.attach(_session, input, camera_rig)
+
 	context_inspector = ContextInspector.new()
 	$UI/ContextInspector.add_child(context_inspector)
-	context_inspector.attach(_session, selection, camera_rig)
+	context_inspector.attach(_session, selection, camera_rig, input)
+
+	# Three of the inspector's buttons are verbs this screen does not own: one
+	# belongs to the camera, two to the train drawer.  They were emitted into the
+	# air — labels that clicked — so the root, the only place holding both sides,
+	# carries them across.
+	train_drawer = $UI/TrainDrawer as TripPanel
+	context_inspector.focus_requested.connect(_on_inspector_focus)
+	context_inspector.route_requested.connect(_on_inspector_route)
+	context_inspector.buy_train_requested.connect(_on_inspector_buy_train)
 
 	notifications = NotificationCenter.new()
 	$UI/Notifications.add_child(notifications)
@@ -185,8 +242,10 @@ func _build_interface() -> void:
 	settings_panel.name = "Settings"
 	settings_panel.visible = false
 	$UI/ModalLayer.add_child(settings_panel)
-	settings_panel.add_to_group("ui_settings_panel")
 	settings_panel.attach(settings)
+	# The one door to the options screen is named here, to the controller that
+	# opens it: `O`, Escape and the command palette all go through `O`'s handler.
+	input.attach_settings_screen(settings_panel)
 
 	_build_audio(toolbar)
 

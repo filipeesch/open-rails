@@ -196,11 +196,15 @@ func _stepper_for_field(field: Dictionary, key: String) -> Control:
 	var stepper := HBoxContainer.new()
 	stepper.add_theme_constant_override("separation", 4.0)
 	stepper.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var less := GameTheme.toggle("−", "One step down")
+	# Momentary buttons, not toggles: `−` and `+` are verbs, not states.  A
+	# `toggle_mode` Button holds itself pressed after one click — the same engine
+	# behaviour this project relies on for the tool palette — and a `+` that stays
+	# lit claims the value is still being raised when nothing is happening.
+	var less := GameTheme.button_for("−", "One step down")
 	less.name = "Less"
 	less.pressed.connect(func() -> void:
 		settings.nudge(key, -1))
-	var more := GameTheme.toggle("+", "One step up")
+	var more := GameTheme.button_for("+", "One step up")
 	more.name = "More"
 	more.pressed.connect(func() -> void:
 		settings.nudge(key, 1))

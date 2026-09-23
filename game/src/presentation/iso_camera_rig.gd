@@ -264,6 +264,14 @@ func is_following() -> bool:
 	return _following_id != 0
 
 
+## Which train is being followed, or 0.  A screen that draws a "following" state
+## has to read the camera's own answer: any copy of it the screen keeps for itself
+## goes dark the moment the follow starts somewhere else — on `F`, in the palette,
+## or in the inspector.
+func followed_train_id() -> int:
+	return _following_id
+
+
 func stop_following() -> void:
 	_following_id = 0
 

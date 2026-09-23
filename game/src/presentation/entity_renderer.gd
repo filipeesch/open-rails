@@ -374,21 +374,27 @@ static func _lod_level_of(node_name: String) -> int:
 # --- entities -------------------------------------------------------------
 
 func _rebuild_everything() -> void:
+	# Each dictionary is emptied AFTER its loop, never inside it: `keys()` hands
+	# back a copy, so clearing midway leaves the loop running through names that no
+	# longer resolve, and the access error stops the rebuild with half the valley
+	# still standing.  That only shows on a rebuild of a *populated* world — a load
+	# with two towns in it — which is why it survived a suite that never attached a
+	# renderer to a save being restored.
 	for key in _stations.keys():
 		_remove(_stations[key])
 	_stations.clear()
 	for key in _industries.keys():
 		_remove(_industries[key])
-		_industries.clear()
+	_industries.clear()
 	# Every player the works were wired to went with the nodes `_remove` freed.
 	_works.clear()
 	_works_running = 0
 	for key in _towns.keys():
 		_remove(_towns[key])
-		_towns.clear()
+	_towns.clear()
 	for key in _trains.keys():
 		_remove(_trains[key])
-		_trains.clear()
+	_trains.clear()
 	_bodies.clear()
 	for town_id in session.towns.towns():
 		_on_town_added(town_id)

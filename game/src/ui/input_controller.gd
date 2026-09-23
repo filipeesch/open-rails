@@ -22,7 +22,6 @@ signal station_ghost_previewed(preview: Dictionary)
 signal cursor_moved(screen: Vector2)
 signal panel_requested(panel: String)
 signal speed_changed(index: int)
-signal hotbar_requested(index: int)
 signal station_picked(station_id: int)
 
 const TOOL_NONE := "none"
@@ -48,6 +47,10 @@ const ZOOM_IN_ACTION := "cam_zoom_in"
 const ZOOM_OUT_ACTION := "cam_zoom_out"
 const BUILD_ACTION := "build_mode"
 const COMPANY_ACTION := "company_panel"
+## The options screen had one door in the running game — the command palette —
+## which is a long way to reach a volume slider.  `O` opens it, and Escape closes
+## it, so the screen behaves like every other screen in the ladder.
+const SETTINGS_ACTION := "settings_panel"
 ## A keypress spends exactly one wheel notch of zoom.  Zooming is one scale run
 ## however it is asked for, so the keyboard and the wheel cannot disagree about
 ## how far a step goes.
@@ -101,8 +104,8 @@ var edge_scrolling := true
 ## which a controller running without one cannot do.
 var viewport_size := Vector2.ZERO
 var settings: SettingsService = null
-
-var on_hotbar: Callable = Callable()
+## The options screen, when a host has named it.  See `attach_settings_screen`.
+var settings_screen: Control = null
 
 var _last_mouse := Vector2.ZERO
 var _last_valid_point := Vector2.ZERO
@@ -127,6 +130,13 @@ func attach_settings(service: SettingsService) -> void:
 	settings = service
 	settings.setting_changed.connect(_on_setting_changed)
 	apply_settings()
+
+
+## Name the options screen this controller is to open and close, so `O` and Escape
+## have a door that does not depend on the engine iterating.  Passing `null` takes
+## the name back — the screen the game_root builds lives as long as it does.
+func attach_settings_screen(screen: Control) -> void:
+	settings_screen = screen
 
 
 func apply_settings() -> void:
@@ -235,11 +245,18 @@ func _handle_key(event: InputEventKey) -> void:
 		arm_tool(TOOL_RAIL)
 	elif InputMap.has_action(COMPANY_ACTION) and event.is_action_pressed(COMPANY_ACTION):
 		open_panel(PANEL_COMPANY)
+	elif InputMap.has_action(SETTINGS_ACTION) and event.is_action_pressed(SETTINGS_ACTION):
+		# Advertised to the player by the palette entry that offers the same verb,
+		# so the key is learnable from the interface rather than from a manual.
+		if not open_settings():
+			session.notify("The settings screen is not available.", "bad")
 	elif event.keycode == KEY_ESCAPE:
 		cancel()
-	elif event.keycode >= KEY_1 and event.keycode <= KEY_9:
-		if on_hotbar.is_valid():
-			on_hotbar.call(event.keycode - KEY_1)
+	# No number key is handled here.  A nine-slot hotbar was once wired to
+	# `on_hotbar`, which nothing ever assigned and nothing else read; and 1, 2 and
+	# 3 were unreachable even then, the speed dial above claiming them first.  A
+	# branch that cannot be reached is not a feature waiting for a host, it is a
+	# place where a future reader looks for one.
 
 
 ## The palette lives under the modal layer, built by `game_root.gd`; reach it by
@@ -250,6 +267,42 @@ func _open_command_palette() -> void:
 			candidate.open_palette()
 			return
 	session.notify("The command palette is not available.", "bad")
+
+
+## The one door to the options screen, for the key, the palette and Escape alike.
+## Reached by group name for the same reason the palette is: this controller does
+## not hold a reference to the shell that built the screen, and a shell without one
+## gets an honest refusal instead of a click that does nothing.
+func open_settings() -> bool:
+	var screen: Variant = _settings_screen()
+	if screen == null:
+		return false
+	screen.call("open_panel")
+	return true
+
+
+## Close the options screen if it is standing open, reporting whether that is what
+## happened — Escape's ladder needs to know whether it found a rung here or has to
+## keep going down to the hover and the selection.
+func close_settings() -> bool:
+	var screen: Variant = _settings_screen()
+	if screen == null or not bool(screen.call("is_open")):
+		return false
+	screen.call("close_panel")
+	return true
+
+
+## The options screen this controller was pointed at, so long as it is still there
+## and can be opened and closed.  Named by the root that builds both, rather than
+## found by searching a node group: a group is only searchable from inside a tree
+## that is iterating, so a verb reachable only through one cannot be exercised
+## outside one — and this door sat unwatched for exactly that reason.
+func _settings_screen() -> Variant:
+	if settings_screen == null or not is_instance_valid(settings_screen):
+		return null
+	if not settings_screen.has_method("open_panel") or not settings_screen.has_method("close_panel"):
+		return null
+	return settings_screen
 
 
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
@@ -367,13 +420,19 @@ func arm_station() -> void:
 	arm_tool(TOOL_STATION)
 
 
-## Escape ladder: abandon a half-finished operation first — the run already
-## started inside an armed tool — then put the tool down, then close the open
+## Escape ladder: dismiss whatever is covering the valley first — today the options
+## screen, which sits in the modal layer over everything — then abandon a
+## half-finished operation, then put the tool down, then close the open
 ## panel, and only then let go of what the player had selected, the hover and
 ## the selection together.  One press never drops a level it did not need to,
 ## so a player mid-line who hits Escape keeps the rail tool in hand (spec 2.1:
 ## cancelling the operation must not silently exit build mode).
 func cancel() -> void:
+	# Covering the valley outranks everything: while the options screen is up it is
+	# the thing the player is looking at, and an Escape that walked past it to put a
+	# tool down would answer a question nobody asked.
+	if close_settings():
+		return
 	if _operation_pending():
 		_cancel_operation()
 		return
@@ -430,6 +489,18 @@ func is_armed() -> bool:
 
 func open_panel(panel: String) -> void:
 	active_panel = "" if active_panel == panel else panel
+	panel_requested.emit(active_panel)
+
+
+## Put one named panel down.  A drawer's own ✕ needs this rather than another
+## `open_panel(name)`: the toggle only hides the panel while the controller and the
+## drawer still agree about what is standing open, and they stop agreeing the
+## moment the panel was hidden by something else — an armed tool, the other drawer.
+## Then the ✕ was opening the sheet it was labelled to close.
+func close_panel(panel: String) -> void:
+	if active_panel != panel:
+		return
+	active_panel = ""
 	panel_requested.emit(active_panel)
 
 

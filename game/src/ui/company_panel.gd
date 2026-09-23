@@ -112,6 +112,14 @@ func _on_panel_requested(panel: String) -> void:
 	visible = panel == InputController.PANEL_COMPANY
 
 
+## The ✕ and the Escape ladder arrive at the same place: the sheet goes down, and
+## the controller is told which one it was, so the toolbar stops lighting it open.
+func _close() -> void:
+	visible = false
+	if controller != null:
+		controller.close_panel(InputController.PANEL_COMPANY)
+
+
 # --- painting ----------------------------------------------------------
 
 
@@ -183,11 +191,10 @@ func _build() -> void:
 	var title := GameTheme.heading("Company finances")
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
-	var close := GameTheme.button_for("✕", "Close the books")
-	close.pressed.connect(func() -> void:
-		if controller != null:
-			controller.open_panel(InputController.PANEL_COMPANY)
-		visible = false)
+	var close := GameTheme.button_for("✕", "Close the books " \
+			+ KeyHints.hint_suffix("tool_cancel"))
+	close.name = "Close"
+	close.pressed.connect(_close)
 	head.add_child(close)
 
 	month_label = GameTheme.small("", GameTheme.TEXT_DIM)

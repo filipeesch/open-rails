@@ -71,10 +71,26 @@ rendering strategy (`runtime-rendering`), test authoring detail (`testing`).
   `InputMap.action_get_events(action)` (plus `OS.get_keycode_string`) when
   writing a key list, and assert a hint's key exists before advertising it.
 
+## Composition roots are released, not freed
+`GameSession.shutdown()` is the counterpart to `_boot()`: it clears the undo
+stack, which holds Callables that captured `BuilderService`. A `builder -> undo
+-> builder` reference cycle is invisible to the refcount pass that runs during
+`free()`, so the builder — and through it the grid, the rail network and every
+service — would survive the object that owned it. Anything that assembles a
+`GameSession` and throws it away (a test harness, a future scenario loader)
+calls `shutdown()` first; `game_root._exit_tree()` does. `run()` and
+`load_from()` do not need it, because `_boot()` clears the stack itself.
+If a new service ever stores a Callable that captures another service, it
+must be cleared in `shutdown()` too. Be honest about the witness: the leak
+test only catches what the refcount pass still sees when the session is
+freed (the services owning nodes). A pure reference cycle is invisible to it —
+the exit-time `Leaked ... ObjectDB instances` line is its only witness.
+
 ## Validation
 `python tools/rr.py check` runs a full headless import and fails on any
-`SCRIPT ERROR` plus world-constants drift; `python tools/rr.py test` boots
-the domain side without a window. Both green before merge.
+`SCRIPT ERROR` plus world-constants drift; it also cross-checks every built
+model against the `game/data/` footprint that claims it. `python tools/rr.py
+test` boots the domain side without a window. Both green before merge.
 
 ## Common mistakes
 - Writing a `#` comment in `project.godot` (it is not a comment there, and the

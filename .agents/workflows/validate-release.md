@@ -17,7 +17,9 @@ spec's own definitions, not by vibes.
    - `python tools/rr.py art validate --all` → exit 0, whole asset set
      passing.
 2. **Full test suite.** `python tools/rr.py test` — green, headless,
-   under 30 s, every required area covered (spec §106 list) and the
+   inside the recorded regression bound in
+   `.agents/references/performance-budgets.md` (under 150 s; measured 86.5 s),
+   every required area covered (spec §106 list) and the
    mandatory integration scenario (build rail → stations → train → hoppers
    → route → advance → coal moved → plant received → revenue up) passing.
    Any failure = stop; do not proceed with a red suite.

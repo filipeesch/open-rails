@@ -79,9 +79,17 @@ Assets MAY author mechanical animations, and any authored action SHALL be publis
 - **WHEN** an asset manifest maps a state outside the canonical list
 - **THEN** validation fails and lists the permitted states
 
+#### Scenario: A named state has something to play it
+- **WHEN** a shipped content definition names the animation state its asset draws with
+- **THEN** the built asset resolves that state to a concrete action, and a runtime consumer plays it while the asset is on screen
+
 ### Requirement: Named attachment points
 An asset that other assets or effects must attach to SHALL expose named attachment points in its manifest — for example chimney smoke origin, coupling points and cargo loading points — expressed in the asset's local space.
 
 #### Scenario: Coupling points are published
 - **WHEN** the locomotive and wagon assets are built
 - **THEN** their manifests list coupling attachment points with local-space coordinates
+
+#### Scenario: A published smoke origin is where the smoke starts
+- **WHEN** a rolling locomotive emits smoke that the effect pool draws
+- **THEN** the plume starts at the manifest's smoke origin carried by the body being drawn, not at a height guessed from the ground under the train

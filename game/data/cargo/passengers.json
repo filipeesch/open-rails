@@ -3,6 +3,7 @@
   "display_name": "Passengers",
   "unit_label": "pax",
   "base_rate": 14.0,
+  "comment": "time_sensitivity is quality lost per MONTH of age (30.42 days), not per day: passengers give up 18% a month and reach the floor at 4.2 months on the platform.",
   "time_sensitivity": 0.18,
   "quality_floor": 0.25,
   "colour": "#d9a441",

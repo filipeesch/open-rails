@@ -3,6 +3,7 @@
   "display_name": "Mail",
   "unit_label": "bags",
   "base_rate": 11.0,
+  "comment": "time_sensitivity is quality lost per MONTH of age (30.42 days), not per day: mail gives up 10% a month and reaches the floor at 5.5 months.",
   "time_sensitivity": 0.1,
   "quality_floor": 0.45,
   "colour": "#7ea8d8",

@@ -44,6 +44,10 @@ const ZOOM_SMOOTHING := 9.0
 const YAW_SMOOTHING := 8.0
 const EDGE_ZONE := 18.0
 const ZOOM_WHEEL_STEP := 0.14
+## A single zoom command (a keypress, a palette entry, a HUD button) is worth this
+## many wheel notches, so every zoom in the game is measured in the one unit
+## `zoom_by` understands instead of a private factor per call site.
+const ZOOM_COMMAND_NOTCHES := 2.5
 ## Below this much remaining turn, the view lands on the commanded angle instead
 ## of closing the last fraction of a degree forever.
 const ANGLE_LANDING := 0.0005
@@ -237,11 +241,11 @@ func zoom_by(steps: float, anchor: Vector2 = Vector2.INF, viewport_rect: Rect2 =
 
 
 func zoom_in() -> void:
-	set_zoom(desired_ortho_size * 0.7)
+	zoom_by(-ZOOM_COMMAND_NOTCHES)
 
 
 func zoom_out() -> void:
-	set_zoom(desired_ortho_size * 1.4)
+	zoom_by(ZOOM_COMMAND_NOTCHES)
 
 
 func focus_tile(tile: Vector2, instant: bool = false) -> void:

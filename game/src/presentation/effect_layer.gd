@@ -34,9 +34,19 @@ const FAR_UPDATE_INTERVAL := 4
 ## a frame — a headless run, an offscreen pass — still has to pay the display rate
 ## this layer was authored against.
 const STEP_SECONDS := 1.0 / 60.0
+## Where smoke starts when the drawn locomotive cannot say where its own chimney
+## is — an asset with no built manifest.  Only a fallback: the manifest's
+## `smoke_origin` is the answer, and it is a different height per model.
+const SMOKE_FALLBACK_HEIGHT := 0.55
+## The pool's drift is chosen, not rolled.  Smoke is presentation and never
+## touches the simulation, but a run that cannot reproduce its own screen is a
+## run nobody can compare frame to frame, and an unseeded `randf()` shares the
+## engine's global generator with anything else that rolls.
+const SMOKE_SEED := 0x05104E52
 
 var session: GameSession
 var camera_rig: IsoCameraRig
+var entities: EntityRenderer
 var smoke: MultiMeshInstance3D
 var mesh: SphereMesh
 var material: StandardMaterial3D
@@ -47,11 +57,14 @@ var _emitted := 0
 var _live := 0
 var _frames := 0
 var _steps := 0
+var _rng := RandomNumberGenerator.new()
 
 
-func attach(game_session: GameSession, rig: IsoCameraRig) -> void:
+func attach(game_session: GameSession, rig: IsoCameraRig, renderer: EntityRenderer = null) -> void:
 	session = game_session
 	camera_rig = rig
+	entities = renderer
+	_rng.seed = SMOKE_SEED
 	mesh = SphereMesh.new()
 	mesh.radius = 0.16
 	mesh.height = 0.32
@@ -170,7 +183,7 @@ func _emit_from_chimneys() -> void:
 			continue
 		if session.trains.speed_tiles_per_tick(train_id) <= 0.02:
 			continue
-		var origin := _train_world(train_id)
+		var origin := train_smoke_origin(train_id)
 		if anchor.distance_to(origin) > SMOKE_MAX_DISTANCE:
 			continue
 		if emitting_index >= MAX_EMITTERS:
@@ -204,13 +217,26 @@ func _spawn(origin: Vector3, count: int) -> void:
 		particle["alive"] = true
 		particle["age"] = 0.0
 		particle["position"] = origin
-		particle["drift"] = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * SMOKE_DRIFT
+		particle["drift"] = Vector3(_rng.randf() * 2.0 - 1.0, 0.0, _rng.randf() * 2.0 - 1.0) * SMOKE_DRIFT
 		_emitted += 1
 
 
-func _train_world(train_id: int) -> Vector3:
+## Where a locomotive is emitting from.
+##
+## The built manifest says where each model's chimney is, and that is the answer
+## whenever the entity renderer can hand it over.  The ground-plus-fallback figure
+## below is only for a placeholder standing in for unbuilt art: taken as the rule,
+## it put every plume in the same place regardless of the engine making it, half a
+## tile below the cab roof it was supposed to be coming out of.
+func train_smoke_origin(train_id: int) -> Vector3:
+	if entities != null:
+		var chimney := entities.smoke_origin_of(train_id)
+		if chimney != Vector3.INF:
+			return chimney
 	var tiles := session.trains.position_tiles(train_id)
-	return Vector3(tiles.x, session.world.elevation_at(Vector2i(floori(tiles.x), floori(tiles.y))) + 0.55, tiles.y)
+	return Vector3(tiles.x,
+			session.world.elevation_at(Vector2i(floori(tiles.x), floori(tiles.y))) + SMOKE_FALLBACK_HEIGHT,
+			tiles.y)
 
 
 ## The point the view is centred on.  Under an orthographic camera the eye sits a

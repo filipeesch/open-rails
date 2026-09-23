@@ -56,6 +56,22 @@ func test_the_loaded_map_presents_the_same_counts_to_the_session() -> void:
 	check_eq(session.world.total_tiles(), 65536, "every cell is allocated")
 
 
+func test_the_valley_opens_facing_its_biggest_settlement() -> void:
+	## The camera used to start on the centre of the grid, which in this map is
+	## the empty plain between the two towns: a player's first frame was scrub
+	## with nothing in it.  The opening view is the largest town's ground.
+	var home := session.towns.principal_town()
+	check_neq(home, 0, "the map names a principal town")
+	check_eq(session.towns.name_of(home), "Marlow", "Marlow, the bigger of the two")
+	check_ge(session.towns.population_of(home), 2400, "on population, not on load order")
+	for town_id in session.towns.towns():
+		check_le(session.towns.population_of(town_id), session.towns.population_of(home),
+				"%s is no bigger than the town the valley opens on" % session.towns.name_of(town_id))
+	var opening := Vector2(session.towns.tile_of(home)) + Vector2(0.5, 0.5)
+	check_gt(opening.distance_to(Vector2(session.world.width, session.world.height) * 0.5), 40.0,
+			"and that ground is nowhere near the centre of the map it used to face")
+
+
 func test_the_valley_holds_water_forest_plains_and_high_ground() -> void:
 	var map := MapDocument.load_map(MAP_ID)
 	var counts := {}

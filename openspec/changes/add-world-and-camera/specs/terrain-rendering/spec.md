@@ -46,7 +46,7 @@ Water SHALL render as a simple coloured plane or chunked surface with optional l
 - **THEN** no water-related simulation work is performed
 
 ### Requirement: Instanced scenery
-Trees, rocks, bushes, fences and telephone poles SHALL be rendered through instancing grouped by chunk, and repeated scenery SHALL NOT create one independently animated scene tree per instance.
+Scenery SHALL be rendered through instancing grouped by chunk, and repeated scenery SHALL NOT create one independently animated scene tree per instance. V1 scatters the point props the map data names — trees, rocks and bushes — each kind being one byte in the grid and one `MultiMesh` per chunk. Spec §11 also names fences and telephone poles; both are *corridor* props, following a field boundary or a rail corridor rather than standing wherever a scatter rule seeds one, and V1's map data carries no corridor rules. They are therefore deferred to a follow-on change rather than quietly dropped, and the shipped set is stated here so the demand and the delivery agree.
 
 #### Scenario: Repeated trees share instances
 - **WHEN** a chunk containing a forest is presented

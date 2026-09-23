@@ -200,17 +200,59 @@ func test_a_further_haul_pays_better_than_a_short_one() -> void:
 			"the longer haul earns more for the same ten tons")
 
 
+func test_the_tariff_is_a_wage_and_not_a_fortune() -> void:
+	## §47 defers the coefficients — "exact coefficients belong in data and will be
+	## balanced later" — but the wireframes fix their order of magnitude: the top
+	## bar reads +$12,430 a month, a station costs $20,000 and a straight of track
+	## $950.  The scale that matters is a delivery measured against the ground it
+	## was carried over: a loaded trip has to pay for several tiles of rail, and it
+	## must not pay for the line it runs on, because a railway whose first trip
+	## repays itself is a spreadsheet with no decisions left in it.
+	TestSession.run_until(session, func() -> bool: return session.cargo.delivery_count() > 0,
+			TestSession.DELIVERY_TICKS)
+	var log := session.cargo.deliveries()
+	check_gt(float(log.size()), 0.0, "the train earned its passage at least once")
+	var straight := session.data.track_setting("cost_per_straight", 950.0)
+	var best_ratio := 0.0
+	for entry in log:
+		var paid := float(entry["revenue"])
+		var line := maxf(1.0, float(entry["distance"])) * straight
+		best_ratio = maxf(best_ratio, paid / line)
+		check_gt(paid, straight * 2.0, "one delivery pays for at least two tiles of track")
+	check_gt(best_ratio, 0.02, "and a working trip is a real fraction of a line")
+	check_lt(best_ratio, 0.5, "but no single trip repays the line it runs over")
+	var profit := float(session.economy.current_month_totals()["profit"])
+	check_gt(profit, 0.0, "the shipped coal line turns a profit in its first months")
+	check_lt(profit, session.economy.opening_balance * 0.1,
+			"and not so much profit that the opening balance stops mattering")
+
+
 func test_perishable_cargo_arrives_worth_less_the_longer_it_takes() -> void:
 	var fresh := session.cargo.quality("passengers", 0.0)
 	var stale := session.cargo.quality("passengers", 20.0)
 	check_near(fresh, 1.0, "cargo fresh off the platform is worth full rate", 0.001)
-	check_lt(stale, fresh, "passengers waiting twenty days are not")
+	check_lt(stale, fresh, "passengers twenty months overdue are not")
 	var def := session.data.cargo_def("passengers")
 	check_ge(stale, def.quality_floor, "but quality never falls below the floor in the data")
 	var coal_floor := session.data.cargo_def("coal")
 	var coal_age := session.cargo.quality("coal", 40.0)
 	check_near(coal_age, coal_floor.quality_floor, "coal settles at its own high floor, not lower", 0.001)
 	check_gt(coal_age, stale, "and it keeps its value far better than passengers do")
+
+
+func test_the_period_the_data_authors_is_a_month_and_not_a_day() -> void:
+	## `time_sensitivity` is the share of quality a cargo loses per MONTH, which
+	## is a slower decay than a day by a factor of thirty.  Read per day, the
+	## shipped figures put every passenger batch at its floor inside a week, so
+	## speed stopped mattering and the tariff silently became a constant.
+	var def := session.data.cargo_def("passengers")
+	var month := session.cargo.months_of_age(30.0)
+	check_near(month, 1.0, "thirty days is one month of age to within rounding", 0.02)
+	check_near(session.cargo.quality("passengers", month), 1.0 - def.time_sensitivity,
+			"and a month on the platform costs passengers about one month of decay", 0.01)
+	check_near(session.cargo.quality("passengers", 6.0), def.quality_floor,
+			"six months on, passengers are at the floor in the data", 0.001)
+	check_gt(session.cargo.quality("coal", 6.0), 0.93, "coal is still worth over 93% after six months")
 
 
 func test_the_cargo_ledger_and_the_money_ledger_tell_the_same_story() -> void:

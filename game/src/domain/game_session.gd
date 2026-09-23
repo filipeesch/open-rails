@@ -115,6 +115,22 @@ func start_blank(p_width: int, p_height: int) -> bool:
 	return true
 
 
+## Release what the session holds that can hold the session back, then let go.
+##
+## An undo entry is a `Callable`, and the closures the builder records capture the
+## builder itself.  Builder → undo stack → closure → builder is a cycle between two
+## RefCounted services, and nothing here collects cycles, so a session freed with a
+## non-empty stack keeps the builder — and the rail network, the planner and the
+## grid it stands on — alive for the rest of the process.  Every new world and every
+## load already empties the stack for its own reasons (a stale reversal belongs to
+## the world that is gone); this is the same release for the case with no new world
+## coming, and it is what any caller that is done with a session should call before
+## freeing it.
+func shutdown() -> void:
+	undo.clear()
+	started = false
+
+
 func _boot(p_width: int, p_height: int) -> void:
 	world.resize(p_width, p_height)
 	clock.configure(data.ticks_per_day(), 1)

@@ -7,12 +7,16 @@ Defines how an asset description becomes a runtime GLB: headless Blender executi
 ## ADDED Requirements
 
 ### Requirement: Headless asset build
-The system SHALL build a named asset, or every discovered asset, from the command line without opening a Blender user interface, producing `game/generated/models/<id>.glb` and `game/generated/manifests/<id>.json`. A build SHALL be reproducible: the same source and configuration SHALL produce equivalent output.
+The system SHALL build a named asset, or every discovered asset, from the command line without opening a Blender user interface, producing `game/generated/models/<id>.glb` and `game/generated/manifests/<id>.json`. A build SHALL be reproducible: the same source and configuration SHALL produce equivalent output. A build that wrote a model the engine has never seen SHALL hand that model to the engine's importer, because until that record exists the loader does not offer the model at all.
 
 #### Scenario: Single asset build
 - **WHEN** `python tools/rr.py art build steam_440` runs
 - **THEN** `game/generated/models/steam_440.glb` and `game/generated/manifests/steam_440.json` both exist
 - **AND** the command exits 0
+
+#### Scenario: A freshly built model is one the game can load
+- **WHEN** `art build` writes a model the engine has never imported
+- **THEN** the command runs the headless project import so the model is loadable, or reports that no Godot is installed and that `rr.py check` still owes that import
 
 #### Scenario: Build failure is surfaced
 - **WHEN** an asset builder raises inside Blender
@@ -62,6 +66,25 @@ The system SHALL validate a built asset without a UI and SHALL detect Blender er
 #### Scenario: Valid asset passes every check
 - **WHEN** `art validate --all` runs over a healthy asset set
 - **THEN** every asset reports pass and the command exits 0
+
+### Requirement: A built model agrees with the definition that names it
+The footprint a content definition claims is the ground the game keeps clear for the building, and the model the definition names has to fit inside it. Asset validation cannot see `game/data/`, and the data has no sight of the model either, so the CLI's shared-convention check SHALL compare the two, and SHALL name the definition and both measurements when they disagree. Two claims are distinguished: a model that overhangs its claim fails wherever the claim came from, while a claim mostly unwalked by the model that stands in it fails only where the claim is a building plot — an industry's own ground — and not where it is reserved yard, for a station reserves a yard it is meant to leave open. The suite SHALL additionally fail if any asset named by a shipped definition is not built and imported, rather than the game drawing that asset's placeholder.
+
+#### Scenario: A model wider than its claimed footprint is named
+- **WHEN** a built model measures wider or deeper than the footprint its definition claims
+- **THEN** `python tools/rr.py check` exits non-zero naming the definition and both measurements
+
+#### Scenario: An industry plot the drawn works do not fill is named
+- **WHEN** an industry definition claims a plot more than one tile wider and deeper than the built model standing in it
+- **THEN** `python tools/rr.py check` exits non-zero, because the next work would be placeable inside the empty ground the first one claimed
+
+#### Scenario: A station yard bigger than its office is not a disagreement
+- **WHEN** a station definition reserves a yard larger than the hut and goods shed drawn inside it, without the model leaving the yard
+- **THEN** the check passes, the yard being ground the station reserves rather than ground the building fills
+
+#### Scenario: A named asset that cannot be loaded is not a silent box
+- **WHEN** a shipped definition names an asset the engine cannot load
+- **THEN** the test suite fails naming that asset instead of the game drawing a coloured box in its place
 
 ### Requirement: Validation preview renders
 The system SHALL render each important asset from eight horizontal angles at 45° intervals, at both close and normal zoom, into `build/previews/<id>/`. Preview renders SHALL be review artefacts and SHALL NOT be referenced by the runtime.

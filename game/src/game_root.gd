@@ -40,6 +40,14 @@ func _ready() -> void:
 	_build_interface()
 
 
+## The session outlives nothing else here, and it is the one thing that has to be
+## released rather than just freed — see `GameSession.shutdown`.  A scene being torn
+## down is exactly the case with no new world coming.
+func _exit_tree() -> void:
+	if _session != null and _session.has_method("shutdown"):
+		_session.call("shutdown")
+
+
 ## Open the valley the player asked for, if the menu said which one.  With no
 ## intent — a direct launch of this scene — the shipped map and the content's own
 ## company name are used, so the game has never needed the menu to exist.
@@ -56,6 +64,13 @@ func _build_presentation() -> void:
 	camera_rig.name = "Camera"
 	$World3D/CameraRig.add_child(camera_rig)
 	camera_rig.configure(world)
+	# The valley opens on the town the player is being asked to serve.  The centre
+	# of the grid is the open country between the two settlements, so a first
+	# frame of nothing at all reads to a player as a broken map.
+	var home: int = _session.towns.principal_town()
+	if home != 0:
+		var home_tile: Vector2i = _session.towns.tile_of(home)
+		camera_rig.focus_tile(Vector2(home_tile) + Vector2(0.5, 0.5), true)
 
 	terrain_renderer = TerrainRenderer.new()
 	$World3D/Terrain.add_child(terrain_renderer)
@@ -75,7 +90,9 @@ func _build_presentation() -> void:
 
 	effects = EffectLayer.new()
 	$World3D/Effects.add_child(effects)
-	effects.attach(_session, camera_rig)
+	# Smoke comes off the chimney the artist drew, and the renderer is the one
+	# that knows where the built manifest says it is.
+	effects.attach(_session, camera_rig, entity_renderer)
 
 	selection = SelectionService.new()
 	selection.name = "Selection"

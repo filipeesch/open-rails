@@ -18,8 +18,10 @@ train dwell/capacity mechanics (`train-system`).
 
 ## Dependencies
 - Data: `game/data/cargo/` — V1 exactly `passengers`, `mail`, `coal`
-  (`{id, display_name, base_rate, time_sensitivity}`; e.g. coal `base_rate
-  8.0, time_sensitivity 0.05`).
+  (`{id, display_name, unit_label, base_rate, time_sensitivity, quality_floor,
+  colour, wagon_required, tonnes_per_unit}`; e.g. coal `base_rate 8.0,
+  time_sensitivity 0.01, quality_floor 0.9`).  `time_sensitivity` is quality
+  lost **per month** of age, not per day.
 - Month boundary: `SimulationClock.month_changed` drives generation +
   allocation (never poll the date).
 - `StationService.covered_sources` + `SourceIndex`; `EconomyService` for

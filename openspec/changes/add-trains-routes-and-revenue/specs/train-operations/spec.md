@@ -76,7 +76,7 @@ A train SHALL be selectable and expose its speed, cargo load, route and current-
 - **THEN** the displayed load rises toward its capacity without any manual refresh
 
 ### Requirement: Train status is observable
-Each train SHALL report a current operational status drawn from a fixed set — such as heading to stop, loading, unloading, waiting, and no path — so UI and notifications can explain what it is doing.
+Each train SHALL report a current operational status drawn from a fixed set, so UI and notifications can explain what it is doing. The shipped set is `IDLE` (standing in a yard with no route to run), `MOVING` (under way, including a train creeping inside its own braking distance for a signal it is holding), `LOADING` (in its dwell, which is one atomic unload-then-load step, so the same status covers both halves) and `LOST` (the route is unreachable — the spec's "no path" — with a readable reason). An arrival, a wait and a transfer are therefore distinguishable to the UI without inventing a status per shade of the same state.
 
 #### Scenario: Unreachable route surfaces as status
 - **WHEN** a train's route becomes unreachable because track was removed

@@ -25,7 +25,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GAME_DIR = REPO_ROOT / "game"
-ART_DIR = REPO_ROOT / "art"
 TOOLS_DIR = REPO_ROOT / "tools"
 
 sys.path.insert(0, str(TOOLS_DIR))
@@ -50,7 +49,14 @@ def cmd_game_run(args: argparse.Namespace) -> int:
 
 def cmd_test(args: argparse.Namespace) -> int:
     godot = toolchain.find_godot(args.godot)
-    worldgen_constants.check(REPO_ROOT)
+    # A drift in the generated world constants is a failure of the suite, not a
+    # note printed on the way past it: the tests would then be asserting
+    # against one scale while the renderer runs on another.
+    drift = worldgen_constants.check(REPO_ROOT)
+    if drift != 0:
+        print("test: FAIL  world constants drifted; run: python tools/rr.py constants",
+              file=sys.stderr)
+        return drift
     argv = ["--headless", "--path", str(GAME_DIR), "--script", "res://tests/runner.gd"]
     if args.filter:
         argv += ["--", f"--filter={args.filter}"]
@@ -132,6 +138,70 @@ def _check_rail_ride_height() -> str | None:
     )
 
 
+## How far a built asset may overhang the footprint its own definition claims, in
+## tiles.  Zero plus a rounding allowance: the claim is the ground the game keeps
+## clear for the building, so a model that measures wider than it does not fit the
+## plot the player was offered.
+FOOTPRINT_OVERHANG_TOLERANCE = 0.001
+## How much of a claimed footprint may go unexplained by the model standing in it.
+## A clearance box a whole tile wider than the asset is not a yard, it is a mistake
+## about how big the building is — and it is the mistake that makes two works
+## placeable inside each other's empty air.
+FOOTPRINT_SLACK_TILES = 1.0
+
+## The definitions that claim a plot of ground, and whether the drawing is expected
+## to fill it.  An industry's footprint is its building plot: the model should cover
+## it, so both the overhang and the slack rule apply.  A station's footprint is the
+## yard it reserves — `StationService` occupies those cells and searches for rail in
+## the rings outside them — and a 3x2 yard holding one office and a goods shed is
+## the design, not a disagreement, so only the overhang rule applies there.
+FOOTPRINT_DATA_DIRS = {"game/data/industries": True, "game/data/stations": False}
+
+
+def _check_asset_footprints() -> str | None:
+    """Return a failure line when a built model and the footprint claiming it disagree.
+
+    `art validate` can only check an asset against its own `asset.toml`, because
+    `game/data/` is invisible to the Blender side of the wall.  This is the other
+    half of the same contract: the JSON that tells the game how much ground to keep
+    clear has to be talking about the building that was actually drawn.  An asset
+    that has never been built is not a disagreement — a placeholder stands in for it.
+    """
+    manifests = REPO_ROOT / "game" / "generated" / "manifests"
+    if not manifests.is_dir():
+        return None
+    checked: list[str] = []
+    for folder, plot_must_be_filled in FOOTPRINT_DATA_DIRS.items():
+        for definition_path in sorted((REPO_ROOT / folder).glob("*.json")):
+            definition = json.loads(definition_path.read_text(encoding="utf-8"))
+            asset = str(definition.get("asset", ""))
+            claimed = definition.get("footprint")
+            manifest_path = manifests / f"{asset}.json"
+            if not asset or not isinstance(claimed, list) or not manifest_path.is_file():
+                continue
+            built = json.loads(manifest_path.read_text(encoding="utf-8")).get("footprint")
+            if not isinstance(built, list) or len(built) != 2:
+                continue
+            claim_x, claim_y = float(claimed[0]), float(claimed[1])
+            drawn_x, drawn_y = float(built[0]), float(built[1])
+            where = f"{definition_path.relative_to(REPO_ROOT)} claims asset '{asset}'"
+            if drawn_x > claim_x + FOOTPRINT_OVERHANG_TOLERANCE or drawn_y > claim_y + FOOTPRINT_OVERHANG_TOLERANCE:
+                return (
+                    f"{where} a {claim_x:g}x{claim_y:g} tile footprint, but the built model "
+                    f"measures {drawn_x:g}x{drawn_y:g}: it overhangs the ground the game keeps clear for it"
+                )
+            if plot_must_be_filled and max(claim_x - drawn_x, claim_y - drawn_y) > FOOTPRINT_SLACK_TILES:
+                return (
+                    f"{where} a {claim_x:g}x{claim_y:g} tile footprint, but the built model "
+                    f"measures {drawn_x:g}x{drawn_y:g}: more than {FOOTPRINT_SLACK_TILES:g} tiles of "
+                    "that plot is empty air the player can build the next work inside"
+                )
+            checked.append(asset)
+    if checked:
+        print(f"check: {len(checked)} built assets fit the footprints that claim them")
+    return None
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Import every runtime script and verify shared conventions."""
     godot = toolchain.find_godot(args.godot)
@@ -144,6 +214,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     ride = _check_rail_ride_height()
     if ride is not None:
         failures.append(ride)
+
+    footprints = _check_asset_footprints()
+    if footprints is not None:
+        failures.append(footprints)
 
     rc = toolchain.run(godot, ["--headless", "--path", str(GAME_DIR), "--import"], cwd=GAME_DIR, capture=True)
     if rc.code != 0:

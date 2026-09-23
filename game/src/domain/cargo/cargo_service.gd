@@ -23,6 +23,14 @@ const SOURCE_INDUSTRY := "industry"
 ## starved to zero.
 const DISTANCE_WEIGHT_POWER := 1.6
 
+## Mean length of a calendar month (365 days spread over twelve).  The decay law
+## is written in months — `time_sensitivity` in the cargo data is the fraction a
+## time-sensitive cargo loses *per month* — and this constant is the one place a
+## batch's age crosses from calendar days into that unit.  Read per day, the
+## shipped figures collapsed passengers to their floor inside a week and every
+## passenger delivery paid the floor however fast the railway ran.
+const DAYS_PER_MONTH := 365.0 / 12.0
+
 var _stations: StationService
 var _towns: TownService
 var _industries: IndustryService
@@ -268,21 +276,29 @@ func deliveries() -> Array[Dictionary]:
 
 
 ## revenue = quantity × base_rate × distance × quality, all coefficients in data.
+## The batch's age arrives in calendar days and crosses into the law's months
+## here, at the one point where the two units meet.
 func _revenue_for(cargo_id: String, quantity: float, distance_tiles: float, age_days: float) -> float:
 	var def := _defs.cargo_def(cargo_id)
 	if def == null:
 		return 0.0
-	return quantity * def.base_rate * maxf(0.0, distance_tiles) * quality(cargo_id, age_days)
+	return quantity * def.base_rate * maxf(0.0, distance_tiles) * quality(cargo_id, months_of_age(age_days))
+
+
+## Calendar days into months, the unit the decay law and `time_sensitivity` use.
+func months_of_age(age_days: float) -> float:
+	return maxf(0.0, age_days) / DAYS_PER_MONTH
 
 
 ## 1.0 when fresh; falls with age for time-sensitive cargo, never below floor.
-func quality(cargo_id: String, age_days: float) -> float:
+## `age_months` is the batch's age in months — see `months_of_age`.
+func quality(cargo_id: String, age_months: float) -> float:
 	var def := _defs.cargo_def(cargo_id)
 	if def == null:
 		return 1.0
 	if def.time_sensitivity <= 0.0:
 		return 1.0
-	return clampf(1.0 - def.time_sensitivity * maxf(0.0, age_days), def.quality_floor, 1.0)
+	return clampf(1.0 - def.time_sensitivity * maxf(0.0, age_months), def.quality_floor, 1.0)
 
 
 # --- internals ------------------------------------------------------------

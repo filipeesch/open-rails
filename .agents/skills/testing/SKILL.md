@@ -40,7 +40,9 @@ art validation (`asset-validation`), CI provider config (none yet —
 5. Economy guard: ledger reconstructs cash exactly; the guard is part of
    the suite, not documentation.
 6. A failing case output names the test and expected-vs-observed values;
-   exit code non-zero. Whole suite green in under 30 s, no window.
+   exit code non-zero. Whole suite green headless with no window, inside the
+   recorded regression bound (`.agents/references/performance-budgets.md`:
+   under 150 s; measured 406 cases in 86.5 s).
 
 ## Public interfaces
 - Test file: `game/tests/domain/test_<area>.gd` exposing `func suite() ->
@@ -73,11 +75,35 @@ Meta-checks: deliberately fail one case ⇒ runner exits non-zero naming it;
 empty test file in the tree ⇒ failure; integration scenario survives a
 fresh `GameSession`.
 
+### Exit-time leak debt (measured, attributed, not yet paid)
+Godot prints leaked-instance counts when the runner's process exits, and the
+suite-wide number is meaningless until it is attributed per file — run each
+`test_*.gd` on its own and read its own exit lines (34 of 38 files report 0
+instances / 0 resources; five fixtures account for the whole total):
+
+| file | instances | resources |
+|---|---|---|
+| `test_construction_tool` | 310 | 11 |
+| `test_track_rendering` | 293 | 11 |
+| `test_shell_screens` | 91 | 2 |
+| `test_travel_scale` | 90 | 13 |
+| `test_settings` | 66 | 2 |
+
+The two rail-render fixtures hold a `RailRenderer` built outside a host node;
+the UI ones build `MainMenu` / `SettingsPanel` controls and leave CanvasItem
+RIDs and shaped-text data behind. None of it affects a shipped run (the game
+quits once, and `game_root._exit_tree()` releases the session properly), so it
+is fixture hygiene, not a game leak — but it is why "0 leaks" must be asserted
+per file, never suite-wide.
+
 ## Common mistakes
 - Testing through UI signals (UI may be absent by design).
 - `randf()` without the session RNG in code under test (breaks exactness).
 - Asserting timing in real seconds instead of ticks.
 - Tests depending on each other's ordering (each builds its own session).
+- A fixture holding a Node that is never a child of something it frees, or a
+  session thrown away without `shutdown()` — both leak at exit and hide the
+  next real leak by inflating the suite-wide number.
 
 ## Related skills
 `simulation-clock`, `economy`, `cargo-system`, `route-system`, `rail-

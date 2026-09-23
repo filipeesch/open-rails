@@ -72,6 +72,16 @@ simulation state (`train-system`, `runtime-rendering`), animation LOD tiers
 - Dwell/loading animation (`loading`/`unloading`) is a short prop animation
   (chute arm, crane); cargo quantities themselves are UI/inspector facts.
 
+## The clip only exists once the engine has seen the file
+A `.glb` is not loadable until Godot's importer has recorded it beside it
+(`<id>.glb.import`). `python tools/rr.py art build` runs that import after any
+asset it rebuilt, so `ModelCatalog.has_asset()` is true the moment a build
+succeeds; a hand-copied or freshly-synced `.glb` without a sidecar is not — it
+reports as unbuilt, and the asset draws its placeholder. An `AnimationPlayer`
+is ordinary glTF content, so it shares that rule: the `working` machinery
+clips authored here are silently absent until the file is reimported.
+Never assert "the asset has no animation" without checking for the sidecar.
+
 ## Validation
 `python tools/rr.py art validate <id>` checks: action names exist in the GLB,
 mapping keys ⊆ canonical states, required `moving` present for vehicles,

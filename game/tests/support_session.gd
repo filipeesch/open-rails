@@ -46,6 +46,11 @@ static func create(map_name: String = "founders_valley") -> GameSession:
 
 static func dispose(session: GameSession) -> void:
 	if session != null:
+		# Release before freeing.  The undo stack holds the closures that reverse
+		# what a case built, and those closures capture the builder: a cycle between
+		# two RefCounted services, which nothing collects.  Freeing without it leaves
+		# the whole built world behind — see `GameSession.shutdown`.
+		session.shutdown()
 		session.free()
 
 

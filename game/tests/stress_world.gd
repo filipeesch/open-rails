@@ -160,6 +160,10 @@ func _build_rail_grid(session: GameSession) -> void:
 
 ## A hundred yards standing between the lines, each finding its own approach
 ## exactly as the build tool's ghost would.
+##
+## The yard is set one row off the line, so its front row touches the rail: a
+## small station asks for a straight run one cell out (`rail_search_radius`), and
+## a yard drawn any further away is a yard the ghost would have refused.
 func _build_stations(session: GameSession) -> void:
 	var made := 0
 	for line in RAIL_LINES_PER_AXIS:
@@ -169,7 +173,7 @@ func _build_stations(session: GameSession) -> void:
 		for index in STATIONS_PER_LINE:
 			if made >= STATIONS_TOTAL:
 				return
-			var anchor := Vector2i(12 + index * 9, rail_row - 3)
+			var anchor := Vector2i(12 + index * 9, rail_row - 2)
 			var reason := session.stations.placement_reason("small_station", anchor)
 			if reason != "":
 				_failures.append("station at %s refused: %s" % [anchor, reason])

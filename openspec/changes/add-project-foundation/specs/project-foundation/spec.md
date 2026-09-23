@@ -64,7 +64,7 @@ The CLI SHALL locate the Godot and Blender executables from documented sources â
 - **THEN** the command exits non-zero and names `RR_BLENDER` and the searched paths
 
 ### Requirement: Single shared world-constants source
-The constants `TILE_SIZE = 1.0` and `HEIGHT_STEP = 0.25` SHALL be defined once for the Python art tooling and once for the Godot runtime, both generated from or compared against the same machine-readable configuration, and no asset script or gameplay module SHALL re-declare them independently.
+The world's scale SHALL be authored once, in `art/config/world.toml`, and generated into `game/src/domain/world/world_constants.gd` for the runtime â€” `TILE_SIZE = 1.0`, `HEIGHT_STEP = 0.25`, the metric anchor `TILE_METRES = 16.0` that every physical quantity (speed, gradient) is converted through, chunk and map sizes, camera angles and zoom band. No asset script or gameplay module SHALL re-declare any of them, and drift between the two SHALL fail `rr.py check`.
 
 #### Scenario: Art and runtime agree on scale
 - **WHEN** `python tools/rr.py check` compares the art-side and runtime-side world constants

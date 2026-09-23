@@ -19,7 +19,7 @@ The world SHALL store terrain type, height, occupancy and rail data for every ti
 - **THEN** the query reports the tile as out of bounds rather than returning another tile's data
 
 ### Requirement: World coordinate conventions
-The system SHALL treat `Vector2i` tile coordinates as canonical, with `TILE_SIZE = 1.0` and `HEIGHT_STEP = 0.25` read from shared world configuration, and SHALL provide conversions between tile coordinates and world-space positions in both directions, including height.
+The system SHALL treat `Vector2i` tile coordinates as canonical, with `TILE_SIZE = 1.0` and `HEIGHT_STEP = 0.25` read from shared world configuration, and SHALL provide conversions between tile coordinates and world-space positions in both directions, including height. The tile-space direction a model or camera faces SHALL be turned into a scene yaw by one shared convention (`WorldCoords.yaw_for_direction`), so no second module re-derives the sign of the Z axis for itself.
 
 #### Scenario: Round-trip conversion is stable
 - **WHEN** a tile coordinate is converted to world space and back

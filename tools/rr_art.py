@@ -323,7 +323,39 @@ def cmd_build(args, repo_root: Path) -> int:
             failed += 1
             print(f"    {r.detail}", file=sys.stderr)
     print(f"art build: {sum(r.status != 'failed' for r in results)}/{len(results)} ok")
+    if failed == 0 and any(r.status == "built" for r in results):
+        failed = _engine_import(repo_root, getattr(args, "godot", None))
     return 1 if failed else 0
+
+
+def _engine_import(repo_root: Path, explicit_godot) -> int:
+    """Let the engine see a model it has never seen, so a build is not a silent no-op.
+
+    A `.glb` written by Blender is not yet something the game can load: Godot reads a
+    model through an import record it keeps beside the file, and until that record
+    exists the loader says the model is not there.  `ModelCatalog`'s answer to that is
+    a coloured box — the right one for art that was never drawn, and a picture nobody
+    would call a failure — so a fresh build could sit in `game/generated/` for a whole
+    session while the game kept drawing a placeholder for it.  Building the model is
+    the moment that knows a reimport is owed, so it is paid here.
+    """
+    game_dir = repo_root / "game"
+    try:
+        godot = toolchain.find_godot(explicit_godot)
+    except toolchain.ToolchainNotFound:
+        # Drawing art on a machine without the engine is legitimate: the models are
+        # for someone else to run.  Say what is still owed instead of failing.
+        print("art build: Godot not found — run `rr.py check` before the game is "
+              "expected to load a freshly built model")
+        return 0
+    result = toolchain.run(godot, ["--headless", "--path", str(game_dir), "--import"],
+                           cwd=game_dir, capture=True)
+    if result.code != 0:
+        print("art build: FAIL  the engine's importer rejected the rebuilt models "
+              f"(exit {result.code})", file=sys.stderr)
+        return 1
+    print("art build: the engine reimported the rebuilt models")
+    return 0
 
 
 def build_one(repo_root, meta, args, blender_exe, blender_version, lib_version,

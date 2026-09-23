@@ -244,7 +244,11 @@ func is_reachable(from_tile: Vector2i, to_tile: Vector2i) -> bool:
 
 
 func find_path(from_tile: Vector2i, to_tile: Vector2i) -> Array[Vector2i]:
-	var key := _world.index_of(from_tile) * 1000000 + _world.index_of(to_tile)
+	# A pair of cell indices packed into one Integer, not a sum of them: two
+	# different pairs must never land on one key.  A multiplier would need to be
+	# bigger than the largest cell index, and a map that outgrew the multiplier
+	# would not fail — it would answer a cached route for some other pair.
+	var key := (_world.index_of(from_tile) << 32) | _world.index_of(to_tile)
 	if _path_cache.has(key):
 		return _path_cache[key]
 	var started := Time.get_ticks_usec()

@@ -16,9 +16,9 @@ extends TestBase
 ## presentation may look at the simulation and must never feed it.  The last case
 ## drives the shipped loop twice over the same coal line at opposite tiers — one
 ## with full animation, one with it suspended — and requires the two worlds to
-## agree exactly.  It is worth knowing that the effect pool fires `randf()`, the
-## engine's global stream: presentation is burning randomness in there that the
-## simulation must never notice.
+## agree exactly.  The effect pool does burn randomness — its own seeded stream,
+## not the engine's global `randf()`, so the picture it draws is reproducible and
+## the simulation could not notice it even if it tried, which it does not.
 
 const NEAR_ZOOM := WorldConstants.CAMERA_ZOOM_CLOSE
 const MEDIUM_ZOOM := WorldConstants.CAMERA_ZOOM_DEFAULT
@@ -204,6 +204,88 @@ func test_a_chimney_fires_every_frame_near_and_every_other_frame_at_medium() -> 
 	_view.zoom_to(FAR_ZOOM)
 	check_eq(float(_puffs_over(RATE_FRAMES)), 0.0, "in the overview a chimney fires nothing at all")
 	check_true(_view.effects.animation_suspended(), "and the layer reports itself suspended")
+
+
+func test_the_smoke_rises_from_the_chimney_the_asset_published() -> void:
+	_view = TestView.stage()
+	var train_id := _run_until_moving()
+	# Bring the engine on screen and let the renderer place it there: a consist off
+	# the edge is deliberately left alone, and this case is about where the chimney
+	# of a *drawn* engine is.
+	_view.rig.focus_tile(_view.session.trains.position_tiles(train_id), true)
+	for frame in 4:
+		_view.run_frame()
+	var chimney := _view.entities.smoke_origin_of(train_id)
+	check_true(chimney != Vector3.INF,
+		"the locomotive manifest publishes a smoke_origin and the renderer resolves it into the world")
+	var origin := _view.effects.train_smoke_origin(train_id)
+	# The wiring is the whole assertion.  The pool emits at the point the asset
+	# author published, read back through the body actually being drawn; the height
+	# it used to guess off the ground put the plume inside the boiler, which read as
+	# a train floating over its own smoke.
+	check_near(origin.x, chimney.x, "the plume starts at the chimney, not beside it", 0.001)
+	check_near(origin.y, chimney.y, "the plume starts at the chimney, not under it", 0.001)
+	check_near(origin.z, chimney.z, "the plume starts at the chimney, not behind it", 0.001)
+	var stock_id := String(_view.session.trains.stock_of(train_id)[0])
+	var published := _view.entities.attachment_offset(stock_id, "smoke_origin")
+	check_gt(float(published.y), float(EffectLayer.SMOKE_FALLBACK_HEIGHT),
+		"the published chimney stands above the height the pool used to guess off the ground")
+	# And it is the *engine's* chimney: the point has to travel with the train.  A
+	# composition that drops the consist root's own position still reports the right
+	# offset, but reports it at the world origin, where the range test quietly eats
+	# every puff.
+	var lead := _view.session.trains.position_tiles(train_id)
+	var off := Vector2(origin.x, origin.z).distance_to(Vector2(lead.x, lead.y))
+	check_lt(off, 2.0, "the plume is on the engine making it, not beside the world origin")
+	# A train the renderer has no body for still gets a plausible plume rather than
+	# an infinite point loose in the pool.
+	var unrendered := _view.effects.train_smoke_origin(99999)
+	check_near(unrendered.y,
+		_view.session.world.elevation_at(Vector2i.ZERO) + EffectLayer.SMOKE_FALLBACK_HEIGHT,
+		"a train with nothing drawn falls back to the ground under its own tile", 0.001)
+
+
+func test_a_works_machinery_turns_while_its_yard_is_on_screen() -> void:
+	_view = TestView.stage()
+	var works: Array[int] = _view.session.industries.industries()
+	check_ge(float(works.size()), 2.0, "the authored valley plants more than one work to animate")
+	if works.size() < 2:
+		return
+	# One work is framed and the other is the control.  Which is which is measured,
+	# not assumed: the pair is chosen as the two works the map puts furthest apart,
+	# and the case says out loud how far apart that is.
+	var first := works[0]
+	var first_tile := _view.session.industries.tile_of(first)
+	var other := first
+	var apart := 0.0
+	for candidate in works:
+		var gap := WorldCoords.distance_tiles(_view.session.industries.tile_of(candidate), first_tile)
+		if gap > apart:
+			other = candidate
+			apart = gap
+	check_gt(apart, 20.0, "the two works are far enough apart that one view cannot hold both")
+	check_true(String(_view.entities.industry_animation(first).get("clip", "")) != "",
+			"the state the industry data names resolves to a clip the built work publishes")
+	check_true(String(_view.entities.industry_animation(other).get("clip", "")) != "",
+			"and so it does for the other kind of work")
+	_view.zoom_to(NEAR_ZOOM)
+	_view.look_at_tile(first_tile)
+	_view.run_frame()
+	check_true(bool(_view.entities.industry_animation(first).get("running", false)),
+			"framed and close in, the first work's machinery is playing")
+	check_false(bool(_view.entities.industry_animation(other).get("running", false)),
+			"and the work %.0f tiles away is not: nothing animates what nobody can see" % apart)
+	_view.zoom_to(FAR_ZOOM)
+	_view.run_frame()
+	check_eq(float(_view.entities.works_running()), 0.0,
+			"in the overview a flywheel is a speck, so nothing anywhere is turning")
+	_view.zoom_to(NEAR_ZOOM)
+	_view.look_at_tile(_view.session.industries.tile_of(other))
+	_view.run_frame()
+	check_true(bool(_view.entities.industry_animation(other).get("running", false)),
+			"scroll to the other yard and its machinery takes up")
+	check_false(bool(_view.entities.industry_animation(first).get("running", false)),
+			"and the one just left behind stands still — this is per yard, not a global switch")
 
 
 func test_the_far_tier_clears_the_sky_and_borns_nothing_in_it() -> void:

@@ -82,6 +82,11 @@ var _wheel_last_tile := {}
 ## along the rails, and the body standing there.
 var _consist_offsets := {}
 var _consist_nodes := {}
+## industry id -> the machinery that runs while the yard is on screen: the player
+## standing inside the asset, the clip the definition's own animation state
+## resolves to, and whether it is turning on this frame.
+var _works := {}
+var _works_running := 0
 
 
 func attach(game_session: GameSession, rig: IsoCameraRig) -> void:
@@ -149,6 +154,10 @@ func tick() -> void:
 			_resume_train(node)
 			_tick_train(train_id)
 			_entity_updates += 1
+	# A work's machinery is animation too, and the same law covers it: the flywheel
+	# turns while the yard is on the screen, and stands still when nobody is looking
+	# at it or when the view is pulled back past the point a flywheel is visible.
+	_tick_works(rect, camera, framed_known)
 	_refresh_labels()
 
 
@@ -371,6 +380,9 @@ func _rebuild_everything() -> void:
 	for key in _industries.keys():
 		_remove(_industries[key])
 		_industries.clear()
+	# Every player the works were wired to went with the nodes `_remove` freed.
+	_works.clear()
+	_works_running = 0
 	for key in _towns.keys():
 		_remove(_towns[key])
 		_towns.clear()
@@ -520,7 +532,86 @@ func _on_industry_added(industry_id: int) -> void:
 	add_child(node)
 	_industries[industry_id] = node
 	_register_body(node)
+	_wire_work(industry_id, node, def)
 	# A work's name is a place name too — see the note on stations.
+
+
+## Wire a work's own machinery to the clip its asset published for the state its
+## definition names.
+##
+## Both halves of this contract existed and neither kept it: the industry JSON names
+## an `animation_state`, and the built manifest maps that state to a clip.  Nothing
+## resolved one into the other, so the colliery's flywheel and the power plant's
+## beam engine shipped authored and never played.  Whether the clip actually runs is
+## decided every frame by `_tick_works`, under the law the wheels already obey —
+## nothing animates what nobody can see.
+func _wire_work(industry_id: int, node: Node3D, def: DataRegistry.IndustryDef) -> void:
+	var clip := _state_clip(def.asset, def.animation_state)
+	if clip == "":
+		return
+	var player := _find_animation_player(node)
+	if player == null or not player.has_animation(clip):
+		return
+	# Machinery has no first revolution.  A clip that arrived unlooped is asked to
+	# cycle here rather than redrawing the asset: the presentation is allowed to
+	# decline to stop a flywheel dead in mid-turn.
+	var animation := player.get_animation(clip)
+	if animation != null and animation.loop_mode == Animation.LOOP_NONE:
+		animation.loop_mode = Animation.LOOP_LINEAR
+	_works[industry_id] = {"player": player, "clip": clip, "running": false}
+
+
+## The clip an asset publishes for one animation state, or "" when it publishes
+## nothing — an unbuilt asset with only a placeholder behind it publishes less.
+func _state_clip(asset_id: String, state: String) -> String:
+	var states: Dictionary = catalog.manifest(asset_id).get("animation_states", {})
+	return String(states.get(state, ""))
+
+
+## Who is turning this frame.  Detail first: in the overview a works is a speck and
+## a flywheel is nothing.  Then the yard's own place on the screen.  Pausing rather
+## than stopping keeps the machinery's position, so scrolling back finds the wheel
+## mid-turn instead of started over.
+func _tick_works(rect: Rect2, camera: Camera3D, framed_known: bool) -> void:
+	var detail := lod_level() != IsoCameraRig.LOD_FAR
+	var running := 0
+	for industry_id in _works:
+		var entry: Dictionary = _works[industry_id]
+		var player: AnimationPlayer = entry["player"]
+		if player == null or not is_instance_valid(player):
+			continue
+		var want := detail
+		if want and framed_known:
+			want = _is_framed(_industry_point(industry_id), rect, camera)
+		if want and not bool(entry["running"]):
+			player.play(String(entry["clip"]))
+			entry["running"] = true
+		elif not want and bool(entry["running"]):
+			player.pause()
+			entry["running"] = false
+		if bool(entry["running"]):
+			running += 1
+	_works_running = running
+
+
+## Where a work stands, asked of the domain for the same reason `_train_point` is:
+## a framing test must never be answered by a body that was skipped.
+func _industry_point(industry_id: int) -> Vector3:
+	var tile := session.industries.tile_of(industry_id)
+	return Vector3(float(tile.x) + 0.5, session.world.elevation_at(tile) + 0.02, float(tile.y) + 0.5)
+
+
+## How many works are turning, and what one particular work is doing.  Read by the
+## case that proves an authored animation is played near, and paused far.
+func works_running() -> int:
+	return _works_running
+
+
+func industry_animation(industry_id: int) -> Dictionary:
+	if not _works.has(industry_id):
+		return {}
+	var entry: Dictionary = _works[industry_id]
+	return {"clip": String(entry["clip"]), "running": bool(entry["running"])}
 
 
 func _on_train_created(train_id: int) -> void:
@@ -591,6 +682,51 @@ func _rebuild_consist(train_id: int) -> void:
 	_wheels[train_id] = wheels
 	_tick_train(train_id)
 	_apply_wheel_phase(train_id)
+
+
+## Where a locomotive's chimney actually is, in world space.
+##
+## The built manifest publishes it as a `smoke_origin` effect attachment, in the
+## axes the asset is authored in (`x` forward, `y` across, `z` up), which become
+## Godot's `(x, z, -y)`.  Handing it out from here means the plume rises off the
+## chimney the artist drew, and a model whose chimney moves in the file moves in
+## the game; an asset with no manifest — a placeholder standing in for unbuilt
+## art — answers `Vector3.INF` and the caller keeps its own fallback.
+func smoke_origin_of(train_id: int) -> Vector3:
+	var bodies: Array = _consist_nodes.get(train_id, [])
+	if bodies.is_empty():
+		return Vector3.INF
+	var body: Node3D = bodies[0]
+	if body == null or not is_instance_valid(body):
+		return Vector3.INF
+	var stock_ids := session.trains.stock_of(train_id)
+	if stock_ids.is_empty():
+		return Vector3.INF
+	var offset := attachment_offset(String(stock_ids[0]), "smoke_origin")
+	if offset == Vector3.INF:
+		return offset
+	var root: Node3D = _trains.get(train_id)
+	if root == null or not is_instance_valid(root):
+		return Vector3.INF
+	# Composed by hand instead of read off `global_transform`.  `_tick_train` roots a
+	# consist at the train's own world position and hangs each vehicle off that root,
+	# so the root's transform *is* a world transform and this product is the chimney
+	# — with or without a scene tree.  `global_transform` asks a question the tree
+	# has to answer: outside one, a node's global transform is only its local one,
+	# the lead position drops out, and every plume lands at the world origin.
+	return root.transform * (body.transform * offset)
+
+
+## One published attachment as a Godot-space offset, or `Vector3.INF` when the
+## manifest does not carry it.  Public because the effect layer has to ask where
+## a chimney is, and guessing a height from the ground up is what made the smoke
+## sit half a tile below the engine that was making it.
+func attachment_offset(stock_id: String, key: String) -> Vector3:
+	var attachments: Dictionary = catalog.manifest(stock_id).get("attachments", {})
+	var values: Array = attachments.get(key, [])
+	if values.size() < 3:
+		return Vector3.INF
+	return Vector3(float(values[0]), float(values[2]), -float(values[1]))
 
 
 ## How the consist is strung out: one distance per vehicle, behind the engine's own

@@ -3,6 +3,7 @@
   "display_name": "Coal",
   "unit_label": "tons",
   "base_rate": 8.0,
+  "comment": "time_sensitivity is quality lost per MONTH of age (30.42 days), not per day: coal at 0.01 still pays 94% after half a year.",
   "time_sensitivity": 0.01,
   "quality_floor": 0.9,
   "colour": "#4a4a52",

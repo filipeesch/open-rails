@@ -70,3 +70,24 @@ func test_the_game_starts_without_being_told_which_scene() -> void:
 	check_true(menu != null, "the main scene loads")
 	# A PackedScene is a Resource: reference-counted, so it goes when this scope
 	# does.  `free()` on one is an error the runner treats as a failed run.
+
+
+## A session is the one object in the game that cannot simply be freed.
+##
+## Every reversible action leaves a `Callable` on the undo stack, and that closure
+## captured the builder that recorded it, so builder → stack → closure → builder is a
+## cycle between two RefCounted services.  Nothing collects cycles: a session dropped
+## with a non-empty stack keeps the builder, the rail network, the planner and the
+## twenty-six-megabyte grid they stand on for the rest of the process — and in a test
+## suite that builds a world per case, it does it fifty times over.  `shutdown()` is
+## the release, and this is the guard that somebody remembered why it exists.
+func test_a_session_being_thrown_away_releases_the_cycle_it_carries() -> void:
+	var session := TestSession.create()
+	var line := TestSession.coal_line(session)
+	check_true(bool(line["ok"]), "a built coal line gives the builder something to record")
+	check_gt(float(session.undo.depth()), 0.0, "and the reversible half of it is on the undo stack")
+	var builder_seen: WeakRef = weakref(session.builder)
+	TestSession.dispose(session)
+	session = null
+	check_true(builder_seen.get_ref() == null,
+			"a disposed session leaves nothing behind that holds the builder, its rails and its grid alive")

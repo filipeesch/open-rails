@@ -44,7 +44,7 @@ Before commitment the system SHALL display footprint, required rail alignment, c
 - **THEN** nothing is built and no cost is charged
 
 ### Requirement: Catchment coverage
-Each station SHALL have a catchment with an initial radius of 4 tiles measured from the station, SHALL report every town and industry whose position lies within it, and SHALL visualise the boundary on the terrain surface.
+Each station SHALL have a catchment with an initial radius of 4 tiles measured from the middle of the yard's ground, and SHALL report every town and industry whose position lies within it. The covered cells SHALL be visualised on the terrain surface while the yard is being placed — the ghost is where a player decides whether the reach is worth paying for — and the sources it covers SHALL be named in the yard's own readout once it is built.
 
 #### Scenario: Source inside radius is covered
 - **WHEN** a coal mine lies 3 tiles from a station

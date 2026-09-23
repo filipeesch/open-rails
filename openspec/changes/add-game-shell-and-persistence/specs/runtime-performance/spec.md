@@ -7,11 +7,16 @@ Defines how the game stays lightweight under large maps and many moving parts: L
 ## ADDED Requirements
 
 ### Requirement: Spatial and animation LOD tiers
-Substantial assets SHALL present LOD0 near the camera, LOD1 at normal gameplay distance and LOD2 at distant overview, and animation SHALL degrade by distance — full effects near, reduced effect rate at medium, reduced update frequency and no particles far.
+Substantial assets SHALL present LOD0 near the camera, LOD1 at normal gameplay distance and LOD2 at distant overview, and animation SHALL degrade by distance — full effects near, reduced effect rate at medium, reduced update frequency and no particles far. The same two tests gate an asset's own mechanical animation: a work's authored machinery turns only while its yard is inside the view and the tier is one that still draws detail.
 
 #### Scenario: Distant trains stop emitting effects
 - **WHEN** a train is beyond the far-distance threshold
 - **THEN** its particle effects are disabled while its wheels update less frequently
+
+#### Scenario: A work's machinery follows the same law as a train's wheels
+- **WHEN** a power plant's yard is off the edge of the screen, or the view is pulled back to the overview
+- **THEN** its authored animation is paused, and the works still inside the view keep running
+- **AND** scrolling to the other yard takes that one up and leaves the first behind
 
 #### Scenario: LOD selection follows distance
 - **WHEN** the same asset is viewed at close, medium and far camera distances
@@ -60,3 +65,10 @@ The runtime SHALL NOT create a node per terrain tile, a material per building, a
 #### Scenario: Pathfinding is cached
 - **WHEN** a train continues along an unchanged route for many ticks
 - **THEN** no pathfinding query runs for that train during those ticks
+
+### Requirement: A discarded session frees the world it held
+The composition root SHALL be released, not merely freed. A service graph that contains a reference cycle survives being freed and would hold its terrain, rails and consists alive for the rest of the process, so the session SHALL expose a release that breaks what it holds which can hold it back, and every caller that is done with a session SHALL call it first.
+
+#### Scenario: The undo stack does not outlive its session
+- **WHEN** a session that has recorded reversible construction actions is disposed of
+- **THEN** the builder those recorded actions reverse — and with it the grid, rails and planner they stand on — is no longer referenced by anything

@@ -18,7 +18,8 @@ budget (`mesh-optimization`).
 ## Dependencies
 - Budgets (`.agents/references/performance-budgets.md`): 60 FPS @ 1920×1080
   on integrated graphics; RAM < 700 MB; GPU < 512 MB; sim tick comfortably
-  inside the 20 Hz fixed-tick budget; domain suite < 30 s.
+  inside the 20 Hz fixed-tick budget; domain suite inside its recorded
+  regression bound (see the measured report in `performance-budgets.md`).
 - `F3` debug overlay: FPS, frame time, draw calls, visible objects, visible
   trains, terrain chunks, rail chunks, simulation tick time, pathfinding
   time, RAM estimate — Godot `Performance` monitors plus service counters

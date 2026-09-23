@@ -58,6 +58,24 @@ func population_of(town_id: int) -> int:
 	return int(town(town_id).get("population", 0))
 
 
+## The settlement the valley opens on.
+##
+## Whoever boots the game should be looking at ground with a name on it, and the
+## domain already knows which town that is: the one with the most people, which
+## is also the one whose cargo pays the bills.  Stating it here keeps the opening
+## view a fact about the map rather than a guess about where the player wants to
+## be.  Ties fall to the lower id, which is the map's own order.
+func principal_town() -> int:
+	var best := 0
+	var best_population := -1
+	for town_id in _order:
+		var population := population_of(town_id)
+		if population > best_population:
+			best_population = population
+			best = town_id
+	return best
+
+
 ## The block of ground a town's square and its frontages claim.
 ##
 ## A town is a place rather than a placed building, so it claims its ground from

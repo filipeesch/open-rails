@@ -45,7 +45,7 @@ static func stage(map_name: String = "founders_valley") -> TestView:
 	view.entities.viewport_size = VIEWPORT_SIZE
 	view.effects = EffectLayer.new()
 	view.host.add_child(view.effects)
-	view.effects.attach(view.session, view.rig)
+	view.effects.attach(view.session, view.rig, view.entities)
 	view.selection = SelectionService.new()
 	view.host.add_child(view.selection)
 	view.selection.attach(view.session, view.rig)
@@ -74,7 +74,7 @@ static func stage_blank(width: int = 64, height: int = 64) -> TestView:
 	view.entities.viewport_size = VIEWPORT_SIZE
 	view.effects = EffectLayer.new()
 	view.host.add_child(view.effects)
-	view.effects.attach(view.session, view.rig)
+	view.effects.attach(view.session, view.rig, view.entities)
 	view.selection = SelectionService.new()
 	view.host.add_child(view.selection)
 	view.selection.attach(view.session, view.rig)

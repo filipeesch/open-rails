@@ -216,3 +216,28 @@ func test_the_stock_on_sale_is_described_in_full_before_it_is_sold() -> void:
 		check_gt(wagon.weight_tons, 0.0, "%s has a weight" % wagon_id)
 		check_true(registry.cargo.has(wagon.cargo), "%s carries a cargo that exists" % wagon_id)
 		check_true(wagon.source_file != "", "%s was read from the data folder" % wagon_id)
+
+
+## The picture has to be the one the data promised.
+##
+## A definition names an asset; the game can only answer that name by building it
+## (`rr.py art build`) and by the engine's importer having seen the result.  Neither
+## step is checked by the other two, and failing either is not an error anywhere:
+## `ModelCatalog` answers a name it cannot load with a coloured box of its own
+## making, the game runs, and the player is looking at a placeholder.  Two ways that
+## has happened in this tree — an asset folder nobody compiled, and a fresh `.glb`
+## sitting in `game/generated/` with no `.import` beside it, which `ResourceLoader`
+## cannot see at all.
+func test_every_asset_the_data_names_is_built_and_imported() -> void:
+	var names: PackedStringArray = PackedStringArray()
+	for entry in session.data.industries.values():
+		names.append(String((entry as DataRegistry.IndustryDef).asset))
+	for entry in session.data.stations.values():
+		names.append(String((entry as DataRegistry.StationDef).asset))
+	for entry in session.data.rolling_stock.values():
+		names.append(String((entry as DataRegistry.StockDef).asset))
+	check_ge(float(names.size()), 6.0, "the works, the station class and the consist all name an asset")
+	var catalog := ModelCatalog.new()
+	for asset_id in names:
+		check_true(catalog.has_asset(asset_id),
+				"%s is built and imported, not standing in as a placeholder box" % asset_id)

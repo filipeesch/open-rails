@@ -31,7 +31,7 @@ See `add-trains-routes-and-revenue/proposal.md` for motivation. Rail graph, stat
 
 **Loading is a two-phase transfer** (unload to destination, then load from stop) executed as an atomic step at arrival, producing a dwell tick count `max(min_dwell, units * per_unit_dwell)`. Transfers move whole batches oldest-first, so the oldest cargo ships first and delivery quality rewards efficient routing.
 
-**Revenue is computed at unload from batch origin and destination station distance**, using `quantity * base_rate * distance * quality`, with `quality = clamp(1 - time_sensitivity * age_months, floor, 1)`, rounded half-up to whole currency once at the end so tests can assert exact totals.
+**Revenue is computed at unload from batch origin and destination station distance**, using `quantity * base_rate * distance * quality`, with `quality = clamp(1 - time_sensitivity * age_months, floor, 1)`, rounded half-up to whole currency once at the end so tests can assert exact totals. The law's unit is the MONTH and a batch's age is recorded in calendar days, so `CargoService.months_of_age` (over `DAYS_PER_MONTH = 365/12`) is the single crossing point, used at the one place the two meet. Read per day the shipped coefficients collapsed passengers to their floor inside a week — every passenger delivery would pay the floor no matter how fast the railway ran, and the tariff would silently stop responding to service quality.
 
 **`EconomyService` becomes the sole mutation point**, extended here with category-tagged expenses, monthly aggregation on `month_changed` and an assertion-friendly transaction id. A test guard asserts the ledger sum equals cash, which is how the "never scatter `cash -= cost`" rule stays enforced rather than merely documented.
 

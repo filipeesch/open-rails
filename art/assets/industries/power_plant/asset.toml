@@ -1,0 +1,12 @@
+# Founder's Valley power plant — brick boiler hall + stack, engine room, coal yard.
+id = "power_plant"
+type = "industry"
+lod_class = "large_industry"
+footprint = [4.00, 2.60]   # flagged plot; matches game/data/industries/power_plant.json [4, 3]
+height = 2.20              # top of the stack coping
+
+[animation]
+required_states = ["working"]
+
+# No [company_colors] region: `art-style` reserves the parameterised livery
+# material for rolling stock and station trim, so the plant is vertex colour only.

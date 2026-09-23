@@ -14,7 +14,7 @@ measured".
 | RAM (normal play) | < 700 MB |
 | GPU memory | < 512 MB |
 | Simulation tick | comfortably below the fixed-tick budget (20 Hz → 50 ms of tick time per second of game time at 1×; measure and record) |
-| Domain test suite | green in under 30 s, headless, no window (project-foundation tasks 4.2) |
+| Domain test suite | green in under 150 s, headless, no window. Measured: 406 cases in 38 files in 86.5 s (≈213 ms per case) on an Apple M4 Pro — see the measured table below. This is a *regression bound*, not a speed target: the suite pays for a whole `GameSession` (map load, world build) per file, so the honest budget is one month of cases per second, and a suite that stops being debuggable in a terminal is the thing to notice. (project-foundation tasks 4.2 originally claimed "< 30 s" against a 3-file suite; that number stopped being true when the map, render and UI suites arrived.) |
 
 ## Triangle budgets per asset class (spec §27, LOD0)
 
@@ -74,6 +74,27 @@ Reproducible from a seed: 256×256 terrain, ~5,000 town/scenery objects,
 without errors. Two runs with the same seed produce identical placements and
 consists. This exceeds normal V1 gameplay; it exists to catch scalability
 failure, not to define budgets.
+
+## Measured report
+
+`runtime-performance` demands a measured line per budget, with the environment
+it was measured on, or an explicit "not measured".  This is that record; the
+line that stops being true is the line that has to be re-measured.
+
+**Environment:** Apple M4 Pro, 12 cores, 24 GB RAM, macOS 26.7, Godot 4.7.2
+Standard headless, Compatibility renderer.  Command:
+`python tools/rr.py stress --ticks 2000`, run 2026-09-23.
+
+| Budget | Measured | Notes |
+|---|---|---|
+| Simulation tick | **23.9 ms of tick time per second of game time at 1×** (48 % of the 50 ms budget) | 2,000 ticks in 2,895 ms = 691 ticks/s, avg tick 1,193 µs, with 100 trains and 5,000 buildings alive |
+| RAM | **31 MB** in the headless stress world | No renderer, no meshes: this is the *simulation and world state* cost, and it is what spec §112's "world state is not nodes" promise buys.  RAM with the renderer loaded is **not measured** — measure it in a windowed run |
+| Frame rate at 1920×1080 | **not measured** | Headless runs draw nothing.  Measure with `rr.py game run` and the `F3` overlay, on the integrated display |
+| GPU memory | **not measured** | Needs a windowed run; `F3` shows the `Performance` video-memory monitor |
+| Pathfinding off the tick | **200 path finds for 2,000 ticks**, 63.2 ms of query time in total | Every find is a route or a `track_changed` event; nothing in `_tick` queries (spec §112) |
+| No node per world entity | **0 extra scene nodes for 5,000 buildings and 10,049 vegetation instances** | The stress world's entity counts are occupancy records, not nodes |
+| Reproducibility | **identical checksum across two builds** (`955786920013269750`) | Same seed ⇒ same placements, consists and result |
+| Terrain rebuild locality | **not measured headless** (0 rebuilds recorded because nothing meshes) | Measure a one-tile edit's rebuild count in a windowed run with `F3` |
 
 ## Measurement requirements
 
